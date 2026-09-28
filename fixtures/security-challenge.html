@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Verification - Challenge Fixture</title>
+</head>
+<body>
+  <div class="verification-container">
+    <h2>Security Check Required</h2>
+    <p>Please complete the verification below before proceeding with your application.</p>
+    
+    <!-- Simulated CAPTCHA challenge -->
+    <div class="g-recaptcha" data-sitekey="sample-site-key-12345">
+      <iframe src="https://www.google.com/recaptcha/api2/anchor" title="reCAPTCHA"></iframe>
+    </div>
+
+    <!-- Simulated OTP challenge -->
+    <form id="otp-form">
+      <label for="otp-input">Verification Code sent to your mobile</label>
+      <input id="otp-input" name="otp" autocomplete="one-time-code" type="text" placeholder="6-digit code" />
+      <button type="submit">Verify & Continue</button>
+    </form>
+  </div>
+</body>
+</html>

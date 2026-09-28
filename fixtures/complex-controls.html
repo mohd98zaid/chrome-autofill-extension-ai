@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Engineering Application - Complex Controls</title>
+</head>
+<body>
+  <form id="complex-form">
+    <div class="form-group">
+      <label for="experience-years">Years of Experience</label>
+      <input id="experience-years" name="total_years" type="number" min="0" max="40" />
+    </div>
+
+    <!-- Tag/Chip input container -->
+    <div class="form-group">
+      <label>Core Technical Skills</label>
+      <div class="tags-input" data-type="tag-input">
+        <div class="chips-container"></div>
+        <input type="text" placeholder="Type a skill and hit Enter..." />
+      </div>
+    </div>
+
+    <!-- Checkbox Group -->
+    <fieldset>
+      <legend>Select all programming languages you have used professionally</legend>
+      <label><input type="checkbox" name="skills_languages" value="Python" /> Python</label>
+      <label><input type="checkbox" name="skills_languages" value="JavaScript" /> JavaScript</label>
+      <label><input type="checkbox" name="skills_languages" value="Go" /> Go</label>
+      <label><input type="checkbox" name="skills_languages" value="Java" /> Java</label>
+    </fieldset>
+
+    <!-- Radio Group -->
+    <fieldset>
+      <legend>Preferred Work Arrangement</legend>
+      <label><input type="radio" name="work_arrangement" value="remote" /> Remote</label>
+      <label><input type="radio" name="work_arrangement" value="hybrid" /> Hybrid</label>
+      <label><input type="radio" name="work_arrangement" value="onsite" /> Onsite</label>
+    </fieldset>
+
+    <!-- Custom Select / Combobox -->
+    <div class="form-group">
+      <label id="level-label">Seniority Level</label>
+      <div role="combobox" aria-labelledby="level-label" aria-controls="level-list" class="combobox-widget">
+        <input type="text" placeholder="Select level" />
+        <ul id="level-list" role="listbox" style="display: none;">
+          <li role="option" data-value="junior">Junior Engineer</li>
+          <li role="option" data-value="mid">Mid-Level Engineer</li>
+          <li role="option" data-value="senior">Senior Engineer</li>
+          <li role="option" data-value="staff">Staff / Principal Engineer</li>
+        </ul>
+      </div>
+    </div>
+  </form>
+</body>
+</html>
