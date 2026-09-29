@@ -57,6 +57,12 @@ export interface ApplicationSession {
   domain: string;
   status: SessionState;
   pageState: Record<string, unknown>;
+  jobDetails?: {
+    title: string;
+    company: string;
+    location?: string;
+    description?: string;
+  };
   filledFields: FilledFieldRecord[];
   pendingFields: FieldDescriptor[];
   unresolvedFields: UnresolvedFieldRecord[];

@@ -422,17 +422,73 @@ export const Popup: React.FC = () => {
     }
   };
 
+  const handleOpenCoverLetterModal = async () => {
+    let detectedRole = session?.jobDetails?.title || '';
+    let detectedCompany = session?.jobDetails?.company || '';
+
+    // If not already in session, actively request extraction from the active tab or background
+    if (!detectedRole || !detectedCompany) {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          const jdRes: any = await new Promise((resolve) => {
+            chrome.tabs.sendMessage(
+              tab.id!,
+              { type: 'BG_EXTRACT_JOB_DETAILS', source: 'popup', timestamp: new Date().toISOString() },
+              (res) => {
+                if (chrome.runtime.lastError) resolve(null);
+                else resolve(res?.data);
+              }
+            );
+          });
+
+          if (jdRes) {
+            if (jdRes.title && !detectedRole) detectedRole = jdRes.title;
+            if (jdRes.company && !detectedCompany) detectedCompany = jdRes.company;
+            if (jdRes.title || jdRes.company) {
+              setSession((prev) => (prev ? { ...prev, jobDetails: jdRes } : prev));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Job details detection error:', err);
+      }
+    }
+
+    // Intelligent fallbacks if page detection didn't find specific fields
+    if (!detectedRole) {
+      detectedRole = profile?.experiences?.[0]?.title || 'Open Position';
+    }
+    if (!detectedCompany) {
+      if (session?.domain) {
+        const cleanDomain = session.domain
+          .replace(/^www\./, '')
+          .replace(/\.(com|org|net|hr|io|co|in|ai).*$/, '')
+          .replace(/[-_]+/g, ' ');
+        detectedCompany = cleanDomain.replace(/\b\w/g, (c) => c.toUpperCase());
+      } else {
+        detectedCompany = 'Hiring Team';
+      }
+    }
+
+    setCoverRole(detectedRole);
+    setCoverCompany(detectedCompany);
+    setShowCoverLetterModal(true);
+  };
+
   const handleGenerateCoverLetter = async () => {
     if (!profile) return;
     setGeneratingLetter(true);
     setGeneratedLetter('');
 
     const evidence: string[] = [
-      `${profile.identity.fullName || 'Candidate'}, based in ${profile.location.city || 'Lucknow'}, ${profile.location.country || 'India'}`,
+      `${profile.identity.fullName || 'Candidate'}, based in ${profile.location.city || ''} ${profile.location.country || ''}`.trim(),
       profile.summary,
       ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
       `Key skills: ${profile.skills.map((s) => s.canonicalName).join(', ')}`
     ].filter(Boolean);
+
+    const jobDescription = session?.jobDetails?.description || '';
 
     chrome.runtime.sendMessage(
       {
@@ -440,8 +496,8 @@ export const Popup: React.FC = () => {
         source: 'popup',
         payload: {
           company: coverCompany.trim() || 'Hiring Team',
-          role: coverRole.trim() || 'AI Engineer',
-          jobDescription: '',
+          role: coverRole.trim() || 'Open Position',
+          jobDescription,
           profileEvidence: evidence,
           tone: coverTone
         },
@@ -452,8 +508,15 @@ export const Popup: React.FC = () => {
         if (res?.success && res.data?.coverLetter) {
           setGeneratedLetter(res.data.coverLetter);
         } else {
-          // Robust grounded fallback using candidate's verified experience
-          const fallback = `Dear Hiring Team at ${coverCompany.trim() || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${coverRole.trim() || 'AI Engineer'} position. As a GenAI Architect & Team Lead at Tata Consultancy Services (TCS) with 5.8+ years of production experience, I specialize in architecting scalable LLM systems, enterprise RAG pipelines, and agentic workflows using Python, LangChain, LangGraph, Claude AI, and Azure OpenAI.\n\nThroughout my career, I have designed and deployed mission-critical AI solutions that reduced manual analysis overhead by ~50% and achieved 80%+ design-system compliance across Healthcare and BFSI enterprise platforms. With my hands-on technical background and leadership experience, I am confident in my ability to deliver immediate value to your engineering team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\n${profile.identity.fullName || 'Mohammad Zaid'}`;
+          // Dynamic grounded fallback using candidate's verified profile data
+          const primaryExp = profile.experiences?.[0];
+          const candidateName = profile.identity.fullName || `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() || 'Candidate';
+          const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'technical and professional skills';
+          const expSentence = primaryExp
+            ? `As a ${primaryExp.title} at ${primaryExp.company}${primaryExp.description ? ` (${primaryExp.description.slice(0, 160)}...)` : ''}`
+            : (profile.summary || 'With a proven track record of delivering high-impact solutions');
+
+          const fallback = `Dear Hiring Team at ${coverCompany.trim() || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${coverRole.trim() || 'open position'} role. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on solving complex challenges, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\n${candidateName}`;
           setGeneratedLetter(fallback);
         }
       }
@@ -742,11 +805,7 @@ export const Popup: React.FC = () => {
         </button>
 
         <button
-          onClick={() => {
-            setCoverRole('AI Engineer');
-            setCoverCompany('Recruitee / Hiring Team');
-            setShowCoverLetterModal(true);
-          }}
+          onClick={handleOpenCoverLetterModal}
           className="w-full py-2 px-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-medium text-xs flex items-center justify-center space-x-1.5 transition-colors"
         >
           <Sparkles className="w-3.5 h-3.5 text-indigo-600" />

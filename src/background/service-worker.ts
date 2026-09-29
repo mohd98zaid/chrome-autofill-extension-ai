@@ -306,6 +306,31 @@ class BackgroundService {
         await storage.deleteMapping(message.payload.id);
         return { deleted: true };
 
+      case 'UI_EXTRACT_JD': {
+        try {
+          const jdRes: any = await chrome.tabs.sendMessage(tabId, {
+            type: 'BG_EXTRACT_JOB_DETAILS',
+            source: 'background',
+            timestamp: new Date().toISOString()
+          });
+          if (jdRes?.success && jdRes.data) {
+            const session = await this.getSession(tabId);
+            session.jobDetails = {
+              title: jdRes.data.title || '',
+              company: jdRes.data.company || '',
+              location: jdRes.data.location || '',
+              description: jdRes.data.description || ''
+            };
+            await storage.saveSession(session);
+            return jdRes.data;
+          }
+        } catch {
+          // ignore or fallback to session
+        }
+        const session = await this.getSession(tabId);
+        return session.jobDetails || null;
+      }
+
       case 'UI_GENERATE_COVER_LETTER':
         return aiOrchestrator.generateCoverLetter(message.payload);
 
@@ -424,6 +449,9 @@ class BackgroundService {
       // Main frame: primary source of page URL, domain
       session.url = payload.url;
       session.domain = payload.domain;
+      if (payload.jobDetails) {
+        session.jobDetails = payload.jobDetails;
+      }
     }
 
     // Maintain multi-frame field storage so frame 0 never wipes out fields discovered by subframes (or vice versa)

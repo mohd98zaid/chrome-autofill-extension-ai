@@ -94,6 +94,9 @@ class ContentScriptController {
       case 'BG_EXTRACT_PAGE_VALUES':
         return this.extractCurrentPageValues();
 
+      case 'BG_EXTRACT_JOB_DETAILS':
+        return this.jdExtractor.extract();
+
       case 'BG_DISMISS_SECURITY':
         this.isSecurityDismissed = true;
         return { success: true, acknowledged: true };
@@ -150,7 +153,15 @@ class ContentScriptController {
       domain: window.location.hostname,
       title: document.title,
       fields: scanResult.fields,
-      isJobDescriptionPresent: Boolean(jd)
+      isJobDescriptionPresent: Boolean(jd),
+      jobDetails: jd
+        ? {
+            title: jd.title || '',
+            company: jd.company || '',
+            location: jd.location || '',
+            description: jd.description || ''
+          }
+        : undefined
     };
 
     chrome.runtime.sendMessage({

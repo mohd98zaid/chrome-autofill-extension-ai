@@ -27,6 +27,7 @@ export type ExtensionMessageType =
   | 'UI_DELETE_QA'
   | 'UI_SAVE_PAGE_INPUTS_TO_PROFILE'
   | 'UI_GET_SETTINGS'
+  | 'BG_EXTRACT_JOB_DETAILS'
   | 'UI_UPDATE_SETTINGS'
   | 'UI_SAVE_MAPPING'
   | 'UI_DELETE_MAPPING'
@@ -63,6 +64,12 @@ export interface PageScannedPayload {
   title: string;
   fields: FieldDescriptor[];
   isJobDescriptionPresent: boolean;
+  jobDetails?: {
+    title: string;
+    company: string;
+    location?: string;
+    description?: string;
+  };
 }
 
 export interface TriggerFillPayload {
