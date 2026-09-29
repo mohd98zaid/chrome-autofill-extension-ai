@@ -988,7 +988,7 @@ export const Popup: React.FC = () => {
 
             <textarea
               rows={9}
-              placeholder="Paste your resume or CV text here (e.g. Mohammad Zaid, Email, Phone, Skills, Work Experience)..."
+              placeholder="Paste your resume or CV text here (e.g. Alex Taylor, Email, Phone, Skills, Work Experience)..."
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
               className="w-full p-2.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono"
@@ -998,11 +998,13 @@ export const Popup: React.FC = () => {
           <div className="pt-2 space-y-2">
             <button
               type="button"
-              onClick={() => setResumeText(`Mohammad Zaid\nGenAI Engineer & Architect | 5.8+ Years | TCS | Lucknow, India\n+91 8726196645 | Email: mohd98zaid@gmail.com | LinkedIn: https://linkedin.com/in/mohd98zaid | GitHub: https://github.com/mohd98zaid | Portfolio: https://mohd98zaid.netlify.app/\nNationality: Indian | Visa: Open to Sponsorship | Notice Period: 15 Days | Open to Relocation\n\nPROFESSIONAL SUMMARY\nGenAI Architect & AI Engineer with 5.8+ years at Tata Consultancy Services (TCS), specializing in production-grade LLM systems, agentic pipelines, and RAG architectures for enterprise clients across Healthcare and BFSI. Hands-on with LangChain, LangGraph, Claude AI, FastAPI, and cloud AI platforms (Azure OpenAI, AWS Bedrock).\n\nCORE COMPETENCIES & SKILLS\nPython, LangChain, LangGraph, LangSmith, Claude AI, Azure OpenAI, AWS Bedrock, CrewAI, AutoGen, FastAPI, MLOps, LLMOps, Vector Databases (FAISS, Chroma, Pinecone), Figma-to-React Automation, AST-based Code Analysis, Docker, CI/CD, Git, Kafka, Redis Streams, PostgreSQL, TimescaleDB, SQL, Next.js, TypeScript, React\n\nEXPERIENCE\nTata Consultancy Services · System Engineer (GenAI Architect & Team Lead)\nNew Delhi | Apr 2021 – Present\n\nEDUCATION\nDr. APJ Abdul Kalam Technical University · B. Tech - Computer Science & Engineering\nLucknow | Aug 2015 – Jun 2019`)}
+              onClick={() =>
+                setResumeText(`Alex Taylor\nSenior Full-Stack Engineer | 5+ Years | San Francisco, CA\n+1 555-0199 | Email: alex.taylor@example.com | LinkedIn: https://linkedin.com/in/alextaylor | GitHub: https://github.com/alextaylor | Portfolio: https://alextaylor.dev\nNationality: American | Visa: Citizen | Notice Period: 2 Weeks | Open to Remote\n\nPROFESSIONAL SUMMARY\nExperienced Full-Stack Software Engineer with 5+ years building scalable distributed web applications, cloud-native services, and AI-assisted tooling using React, TypeScript, Node.js, and Python.\n\nCORE COMPETENCIES & SKILLS\nTypeScript, React, Python, Node.js, Next.js, PostgreSQL, Docker, Kubernetes, AWS, GraphQL, REST APIs, CI/CD, Git, Tailwind CSS\n\nEXPERIENCE\nAcme Corp · Senior Software Engineer\nSan Francisco, CA | Jan 2021 – Present\n- Led architecture and deployment of real-time collaboration microservices serving 1M+ active users.\n\nEDUCATION\nUniversity of California, Berkeley · B.S. in Computer Science\nBerkeley, CA | Aug 2016 – May 2020`)
+              }
               className="w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Load Mohammad Zaid's CV Text</span>
+              <span>Load Sample CV Text</span>
             </button>
             <button
               onClick={handleImportResume}
@@ -1172,7 +1174,7 @@ export const Popup: React.FC = () => {
               rows={9}
               value={jsonPasteText}
               onChange={(e) => setJsonPasteText(e.target.value)}
-              placeholder={`{\n  "identity": {\n    "fullName": "Mohammad Zaid",\n    "email": "mohd98zaid@gmail.com"\n  }\n}`}
+              placeholder={`{\n  "identity": {\n    "fullName": "Alex Taylor",\n    "email": "alex.taylor@example.com"\n  }\n}`}
               className="w-full p-2 text-[11px] font-mono border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500"
             />
 

@@ -21,98 +21,42 @@ const DEFAULT_PROFILE: UserProfile = {
   id: 'profile_default',
   version: 1,
   identity: {
-    firstName: 'Mohammad',
-    lastName: 'Zaid',
-    fullName: 'Mohammad Zaid',
-    email: 'mohd98zaid@gmail.com',
-    phone: '+91 8726196645'
+    firstName: '',
+    lastName: '',
+    fullName: '',
+    email: '',
+    phone: ''
   },
   location: {
     addressLine: '',
-    city: 'Lucknow',
-    state: 'Uttar Pradesh',
-    country: 'India',
-    zipCode: '226001'
+    city: '',
+    state: '',
+    country: '',
+    zipCode: ''
   },
-  summary: 'GenAI Architect & AI Engineer with 5.8+ years at Tata Consultancy Services (TCS), specializing in production-grade LLM systems, agentic pipelines, and RAG architectures for enterprise clients across Healthcare and BFSI. Hands-on with LangChain, LangGraph, Claude AI, FastAPI, and cloud AI platforms (Azure OpenAI, AWS Bedrock). Open to Senior GenAI Architect / Agentic AI Engineering Lead roles across the GCC region.',
+  summary: '',
   links: {
-    linkedin: 'https://linkedin.com/in/mohd98zaid',
-    github: 'https://github.com/mohd98zaid',
-    portfolio: 'https://mohd98zaid.netlify.app/'
+    linkedin: '',
+    github: '',
+    portfolio: ''
   },
-  skills: [
-    { id: 'skill_1', canonicalName: 'Python', aliases: ['Python 3'], proficiency: 'expert', years: 6, source: ['resume'], verified: true },
-    { id: 'skill_2', canonicalName: 'LangChain', aliases: [], proficiency: 'expert', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_3', canonicalName: 'LangGraph', aliases: [], proficiency: 'expert', years: 3, source: ['resume'], verified: true },
-    { id: 'skill_4', canonicalName: 'FastAPI', aliases: [], proficiency: 'advanced', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_5', canonicalName: 'Azure OpenAI', aliases: [], proficiency: 'advanced', years: 3, source: ['resume'], verified: true },
-    { id: 'skill_6', canonicalName: 'AWS Bedrock', aliases: [], proficiency: 'advanced', years: 3, source: ['resume'], verified: true },
-    { id: 'skill_7', canonicalName: 'React', aliases: ['React.js'], proficiency: 'advanced', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_8', canonicalName: 'TypeScript', aliases: [], proficiency: 'advanced', years: 3, source: ['resume'], verified: true },
-    { id: 'skill_9', canonicalName: 'Prompt Engineering', aliases: [], proficiency: 'expert', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_10', canonicalName: 'RAG', aliases: ['Retrieval Augmented Generation'], proficiency: 'expert', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_11', canonicalName: 'Agentic Workflows', aliases: [], proficiency: 'expert', years: 3, source: ['resume'], verified: true },
-    { id: 'skill_12', canonicalName: 'Docker', aliases: [], proficiency: 'intermediate', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_13', canonicalName: 'PostgreSQL', aliases: ['Postgres'], proficiency: 'intermediate', years: 4, source: ['resume'], verified: true },
-    { id: 'skill_14', canonicalName: 'SQL', aliases: [], proficiency: 'advanced', years: 5, source: ['resume'], verified: true }
-  ],
-  experiences: [
-    {
-      id: 'exp_1',
-      company: 'Tata Consultancy Services',
-      title: 'System Engineer (GenAI Architect & Team Lead)',
-      startDate: '2021-04',
-      endDate: '',
-      current: true,
-      location: 'New Delhi, India',
-      description: 'Architected enterprise AI applications that auto-generate business logic from code flow diagrams using LangChain and Python, cutting manual analysis time by ~50%. Designed production RAG pipelines with vector stores (FAISS) and LLMs.',
-      skills: ['Python', 'LangChain', 'LangGraph', 'Claude AI', 'RAG'],
-      achievements: ['Reduced manual analysis time by ~50%', 'Reduced documentation overhead by ~60%'],
-      verified: true
-    }
-  ],
-  education: [
-    {
-      id: 'edu_1',
-      institution: 'Dr. APJ Abdul Kalam Technical University',
-      degree: 'B. Tech',
-      field: 'Computer Science & Engineering',
-      startDate: '2015-08',
-      endDate: '2019-06',
-      verified: true
-    }
-  ],
-  certifications: [
-    { id: 'cert_1', name: 'LangChain for LLM Application Development', issuer: 'DeepLearning.AI', issueDate: '2023', verified: true },
-    { id: 'cert_2', name: 'Building Systems with the ChatGPT API', issuer: 'DeepLearning.AI', issueDate: '2023', verified: true },
-    { id: 'cert_3', name: 'Microsoft Certified: Azure AI Fundamentals', issuer: 'Microsoft', issueDate: '2023', verified: true }
-  ],
+  skills: [],
+  experiences: [],
+  education: [],
+  certifications: [],
   projects: [],
   preferences: {
-    workAuthorization: 'Open to Sponsorship',
-    visaStatus: 'Open to Sponsorship',
-    requiresSponsorship: true,
-    noticePeriodDays: 15,
+    workAuthorization: '',
+    visaStatus: '',
+    requiresSponsorship: false,
+    noticePeriodDays: 0,
     desiredSalary: '',
-    willingToRelocate: true,
+    willingToRelocate: false,
     remotePreference: 'any'
   },
   verifiedFacts: [],
   customQA: [],
   updatedAt: new Date().toISOString()
-};
-
-const SECOND_PROFILE: UserProfile = {
-  ...DEFAULT_PROFILE,
-  id: 'profile_ai_engineer',
-  summary: 'Senior Agentic AI & LLM Engineer with 5.8+ years developing end-to-end production LLM systems, custom agent frameworks, and high-throughput microservices using LangChain, LangGraph, Claude AI, and FastAPI.',
-  experiences: [
-    {
-      ...DEFAULT_PROFILE.experiences[0],
-      id: 'exp_ai_eng_1',
-      title: 'Senior Agentic AI & LLM Engineer'
-    }
-  ]
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -433,7 +377,7 @@ export class StorageService {
       await chrome.storage.local.set({ user_profile: validated });
       try {
         const res = await chrome.storage.local.get('cv_profiles');
-        const profilesList: UserProfile[] = Array.isArray(res.cv_profiles) ? res.cv_profiles : [DEFAULT_PROFILE, SECOND_PROFILE];
+        const profilesList: UserProfile[] = Array.isArray(res.cv_profiles) ? res.cv_profiles : [DEFAULT_PROFILE];
         const existingIdx = profilesList.findIndex((p) => p.id === validated.id);
         if (existingIdx >= 0) {
           profilesList[existingIdx] = validated;

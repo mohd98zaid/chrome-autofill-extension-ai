@@ -17,11 +17,21 @@ export type SessionState =
   | 'FAILED_RECOVERABLE'
   | 'FAILED_TERMINAL';
 
+export type FieldStatus =
+  | 'NOT_ATTEMPTED'
+  | 'ATTEMPTED'
+  | 'VERIFIED'
+  | 'FAILED'
+  | 'NEEDS_USER'
+  | 'SKIPPED'
+  | 'BLOCKED_SECURITY';
+
 export interface FilledFieldRecord {
   fieldId: string;
   fieldSignature: string;
   semanticType: SemanticFieldType;
   controlType: ControlType;
+  status: FieldStatus;
   attemptedValue: string | string[] | boolean;
   verifiedValue: string | string[] | boolean;
   verified: boolean;

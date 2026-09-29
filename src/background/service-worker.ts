@@ -474,7 +474,13 @@ class BackgroundService {
     }
     session.pendingFields = Array.from(allFieldsMap.values());
 
-    session.status = session.status === 'PAUSED_SECURITY' ? 'PAUSED_SECURITY' : 'READY';
+    // Only unpause PAUSED_SECURITY if top frame completes a clean scan with no active security triggers
+    if (frameId === 0 && session.status === 'PAUSED_SECURITY') {
+      session.status = 'READY';
+      session.securityTrigger = undefined;
+    } else if (session.status !== 'PAUSED_SECURITY') {
+      session.status = 'READY';
+    }
     await storage.saveSession(session);
     return session;
   }
@@ -501,26 +507,20 @@ class BackgroundService {
   private async startAutofill(tabId: number, fillPayload?: TriggerFillPayload): Promise<{ success: boolean; message?: string }> {
     const session = await this.getSession(tabId);
 
-    // If currently paused due to security challenge, treat user-initiated autofill as an explicit override
+    // Rule 9 & 10: Security challenges must NEVER be bypassed!
     if (session.status === 'PAUSED_SECURITY') {
-      logger.info('ServiceWorker', `Overriding PAUSED_SECURITY because user initiated autofill on tab ${tabId}`);
-      session.status = 'READY';
-      session.securityTrigger = undefined;
-      try {
-        chrome.tabs.sendMessage(tabId, {
-          type: 'BG_DISMISS_SECURITY',
-          source: 'background',
-          timestamp: new Date().toISOString()
-        });
-      } catch {
-        // ignore
-      }
+      logger.warn('ServiceWorker', `Cannot start autofill on tab ${tabId}: active security challenge.`);
+      return {
+        success: false,
+        message: 'Security challenge active. Solve the challenge on the webpage, then click Rescan to continue.'
+      };
     }
 
     session.status = 'FILLING';
     await storage.saveSession(session);
 
-    const profile = await storage.getProfile((fillPayload as any)?.profileId);
+    const profileId = fillPayload?.profileId;
+    const profile = await storage.getProfile(profileId);
     const settings = await storage.getSettings();
 
     try {
@@ -536,7 +536,20 @@ class BackgroundService {
         timestamp: new Date().toISOString()
       });
 
-      session.status = 'COMPLETED_REVIEW';
+      // Rule 13: Background Session Management
+      // After autofill: field results -> aggregate results -> required verified?
+      // YES -> COMPLETED_REVIEW
+      // NO -> NEEDS_USER
+      const records: FilledFieldRecord[] = (response as any)?.data?.records || (response as any)?.records || [];
+      const unverifiedRequired = session.pendingFields.some((f) => {
+        if (!f.isRequired) return false;
+        const matching = records.find((r) => r.fieldId === f.id);
+        return !matching || matching.status !== 'VERIFIED';
+      });
+
+      const hasFailed = records.some((r) => r.status === 'FAILED' || r.status === 'NEEDS_USER');
+
+      session.status = unverifiedRequired || hasFailed ? 'NEEDS_USER' : 'COMPLETED_REVIEW';
       await storage.saveSession(session);
 
       return { success: true, ...response };

@@ -361,20 +361,6 @@ export class InteractionEngine {
           element.dispatchEvent(new Event('blur', { bubbles: true }));
         }
 
-        // Clean up error state if present
-        try {
-          element.removeAttribute('aria-invalid');
-          const container = element.closest('div, td, tr, li, p, section') || element.parentElement;
-          if (container) {
-            const errNodes = container.querySelectorAll('.error, [class*="error"], [class*="Error"], .invalid-feedback, .text-danger');
-            for (const err of Array.from(errNodes)) {
-              if ((err.textContent || '').toLowerCase().includes('required') || (err.textContent || '').toLowerCase().includes('must have a value')) {
-                (err as HTMLElement).style.display = 'none';
-              }
-            }
-          }
-        } catch {}
-
         return {
           success: true,
           strategyUsed: 'select_option_match',
@@ -618,12 +604,24 @@ export class InteractionEngine {
         }
       }
 
-      // Fallback: press Enter to select first filtered option
+      // Check if pressing Enter committed a matching option
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      const finalVal = input.value?.trim().toLowerCase();
+      if (finalVal && (finalVal === value.trim().toLowerCase() || finalVal.includes(value.trim().toLowerCase()))) {
+        return {
+          success: true,
+          strategyUsed: 'searchable_select_enter_key',
+          attemptedValue: value
+        };
+      }
+
       return {
-        success: true,
-        strategyUsed: 'searchable_select_enter_key',
-        attemptedValue: value
+        success: false,
+        strategyUsed: 'searchable_select_no_matching_option',
+        attemptedValue: value,
+        error: `No matching option found for "${value}" in searchable select`
       };
     }
 

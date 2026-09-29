@@ -12,7 +12,8 @@ import {
 } from '../types/messages';
 import { FieldDescriptor, SemanticFieldType } from '../types/taxonomy';
 import { UserProfile, Settings, CustomQA } from '../types/profile';
-import { FilledFieldRecord } from '../types/session';
+import { FilledFieldRecord, FieldStatus } from '../types/session';
+import { resolveFieldValue } from './resolver/field-resolver';
 import { logger } from '../utils/logger';
 
 class ContentScriptController {
@@ -26,7 +27,6 @@ class ContentScriptController {
   private currentDescriptors: Map<string, FieldDescriptor> = new Map();
   private elementMap: Map<string, HTMLElement> = new Map();
   private isFilling = false;
-  private isSecurityDismissed = false;
 
   constructor() {
     this.scanner = new DOMScanner();
@@ -98,7 +98,6 @@ class ContentScriptController {
         return this.jdExtractor.extract();
 
       case 'BG_DISMISS_SECURITY':
-        this.isSecurityDismissed = true;
         return { success: true, acknowledged: true };
 
       default:
@@ -135,9 +134,8 @@ class ContentScriptController {
       this.currentDescriptors.set(f.id, f);
     }
 
-    // Only report security challenge from top frame or subframes that actually contain form controls
-    // and only if the challenge has not been explicitly dismissed by the user for this session
-    if (!this.isSecurityDismissed && scanResult.securityTrigger && (isTopFrame || scanResult.fields.length > 0)) {
+    // Always report active security challenge to background coordinator (Rule 9)
+    if (scanResult.securityTrigger && (isTopFrame || scanResult.fields.length > 0)) {
       chrome.runtime.sendMessage({
         type: 'CONTENT_SECURITY_DETECTED',
         source: 'content',
@@ -222,21 +220,49 @@ class ContentScriptController {
 
         // Classify field
         const classification = this.classifier.classify(field);
+        const sectionIndex = this.getSectionIndex(element, classification.semanticType);
 
-        // Security check: High impact fields check
-        if (this.isHighImpactField(classification.semanticType) && !fillPayload?.forceAll) {
-          logger.warn('ContentScript', `Skipping high-impact field for manual user confirmation: ${classification.semanticType}`);
-          continue;
+        // Resolve value from profile using centralized resolver (Rules 30, 31, 32)
+        const resolveRes = resolveFieldValue({
+          semanticType: classification.semanticType,
+          field,
+          profile,
+          sectionIndex,
+          sectionHeading: field.sectionHeading
+        });
+
+        // Security check: High impact fields check (Rule 11: forceAll must NEVER bypass high impact/safety fields!)
+        const isHighImpact = this.isHighImpactField(classification.semanticType);
+        if (isHighImpact) {
+          if (resolveRes.status !== 'RESOLVED' || resolveRes.value === undefined || resolveRes.value === null || resolveRes.value === '') {
+            logger.warn('ContentScript', `Skipping high-impact field without explicit user profile configuration: ${classification.semanticType}`);
+            records.push({
+              fieldId: field.id,
+              fieldSignature: field.fieldSignature,
+              semanticType: classification.semanticType,
+              controlType: field.controlType,
+              status: 'NEEDS_USER',
+              attemptedValue: '',
+              verifiedValue: '',
+              verified: false,
+              verificationMessage: resolveRes.reason || 'High-impact field requires user review',
+              strategyUsed: 'skipped_high_impact',
+              confidence: classification.confidence,
+              source: classification.source,
+              timestamp: new Date().toISOString()
+            });
+            continue;
+          }
         }
 
-        // Confidence check against settings
+        // Confidence check against settings (forceAll only allows attempting ordinary low-confidence fields)
         if (classification.confidence < settings.autoFillThreshold && !fillPayload?.forceAll) {
           logger.info('ContentScript', `Field confidence (${classification.confidence}) below auto-fill threshold (${settings.autoFillThreshold})`);
           continue;
         }
 
-        // Resolve value from profile
-        let targetValue = this.resolveProfileValue(classification.semanticType, profile, field);
+        let targetValue: string | string[] | boolean | null =
+          resolveRes.status === 'RESOLVED' && resolveRes.value !== undefined ? resolveRes.value : null;
 
         // Real-Time Intelligent Agent for unmapped boxes, custom prompts & application questions
         if (targetValue === null || targetValue === undefined || targetValue === '') {
@@ -248,7 +274,7 @@ class ContentScriptController {
               targetValue = rememberedAnswer;
               logger.info('ContentScript', `Reusing saved answer from Q&A memory bank for: "${promptText.slice(0, 35)}..."`);
             } else if (settings.aiEnabled) {
-              // Step 2: Real-time dynamic generation & persistent learning
+              // Step 2: Real-time dynamic generation & persistent learning (Rule 20: Grounded in profile evidence)
               targetValue = await this.generateAndSaveRealtimeAnswer(promptText, field);
               if (targetValue) {
                 if (!profile.customQA) profile.customQA = [];
@@ -265,7 +291,26 @@ class ContentScriptController {
           }
         }
 
-        if (targetValue === null || targetValue === undefined || targetValue === '') continue;
+        if (targetValue === null || targetValue === undefined || targetValue === '') {
+          if (field.isRequired) {
+            records.push({
+              fieldId: field.id,
+              fieldSignature: field.fieldSignature,
+              semanticType: classification.semanticType,
+              controlType: field.controlType,
+              status: 'NEEDS_USER',
+              attemptedValue: '',
+              verifiedValue: '',
+              verified: false,
+              verificationMessage: resolveRes.reason || 'Required field has no verified value in profile',
+              strategyUsed: 'none',
+              confidence: classification.confidence,
+              source: classification.source,
+              timestamp: new Date().toISOString()
+            });
+          }
+          continue;
+        }
 
         // If State dropdown options are loading asynchronously after country, wait a tick
         if (classification.semanticType === 'state' && element instanceof HTMLSelectElement && element.options.length <= 1) {
@@ -279,14 +324,21 @@ class ContentScriptController {
           failedSelects.push({ field, element, targetValue, classification });
         }
 
-        // Verify result
+        // Verify result (Rules 12, 14, 18: Only verified passes)
         const verification = this.verificationEngine.verify(element, field, targetValue);
+
+        const status: FieldStatus = verification.verified
+          ? 'VERIFIED'
+          : verification.hasValidationError || interaction.success
+          ? 'FAILED'
+          : 'NEEDS_USER';
 
         const record: FilledFieldRecord = {
           fieldId: field.id,
           fieldSignature: field.fieldSignature,
           semanticType: classification.semanticType,
           controlType: field.controlType,
+          status,
           attemptedValue: targetValue,
           verifiedValue: verification.actualValue ?? '',
           verified: verification.verified,
@@ -318,11 +370,13 @@ class ContentScriptController {
           const retryInteraction = await this.interactionEngine.fill(item.element, item.field, item.targetValue);
           if (retryInteraction.success) {
             const verification = this.verificationEngine.verify(item.element, item.field, item.targetValue);
+            const retryStatus: FieldStatus = verification.verified ? 'VERIFIED' : 'FAILED';
             const record: FilledFieldRecord = {
               fieldId: item.field.id,
               fieldSignature: item.field.fieldSignature,
               semanticType: item.classification.semanticType,
               controlType: item.field.controlType,
+              status: retryStatus,
               attemptedValue: item.targetValue,
               verifiedValue: verification.actualValue ?? '',
               verified: verification.verified,
@@ -526,111 +580,54 @@ class ContentScriptController {
     return expandedAny;
   }
 
-  private resolveProfileValue(
-    semanticType: SemanticFieldType,
-    profile: UserProfile,
-    field: FieldDescriptor
-  ): string | string[] | boolean | null {
-    switch (semanticType) {
-      case 'salutation':
-        return 'Mr.';
-      case 'first_name':
-        return profile.identity.firstName;
-      case 'last_name':
-        return profile.identity.lastName;
-      case 'full_name':
-        return profile.identity.fullName || `${profile.identity.firstName} ${profile.identity.lastName}`.trim();
-      case 'email':
-        return profile.identity.email;
-      case 'phone':
-        return profile.identity.phone;
-      case 'phone_device_type':
-        return 'Mobile';
-      case 'phone_extension':
-        return null;
-      case 'address':
-        return profile.location.addressLine;
-      case 'city': {
-        const text = `${field.sectionHeading || ''} ${field.nearbyText || ''} ${field.labelText || ''}`.toLowerCase();
-        if (text.includes('experience') || text.includes('work') || text.includes('job') || text.includes('employer')) {
-          return profile.experiences[0]?.location || profile.location.city;
-        }
-        return profile.location.city;
-      }
-      case 'state':
-        return profile.location.state;
-      case 'zip_code':
-        return profile.location.zipCode;
-      case 'country':
-        return profile.location.country;
-      case 'linkedin':
-        return profile.links.linkedin;
-      case 'github':
-        return profile.links.github;
-      case 'portfolio':
-        return profile.links.portfolio;
-      case 'current_company':
-        return profile.experiences[0]?.company || null;
-      case 'current_title':
-        return profile.experiences[0]?.title || null;
-      case 'currently_work_here':
-        return profile.experiences[0]?.current ?? true;
-      case 'start_date': {
-        const text = `${field.sectionHeading || ''} ${field.nearbyText || ''} ${field.labelText || ''}`.toLowerCase();
-        if (text.includes('education') || text.includes('degree') || text.includes('school')) {
-          return profile.education[0]?.startDate || null;
-        }
-        return profile.experiences[0]?.startDate || null;
-      }
-      case 'end_date': {
-        const text = `${field.sectionHeading || ''} ${field.nearbyText || ''} ${field.labelText || ''}`.toLowerCase();
-        if (text.includes('education') || text.includes('degree') || text.includes('school')) {
-          return profile.education[0]?.endDate || null;
-        }
-        return profile.experiences[0]?.current ? 'Present' : profile.experiences[0]?.endDate || null;
-      }
-      case 'job_description':
-        return profile.experiences[0]?.description || null;
-      case 'years_experience': {
-        const total = profile.experiences.length > 0 ? profile.experiences.length * 2 : 3;
-        return String(total);
-      }
-      case 'work_authorization':
-        return profile.preferences.workAuthorization || 'Yes';
-      case 'visa_status':
-        return profile.preferences.visaStatus || 'No';
-      case 'notice_period':
-        return profile.preferences.noticePeriodDays > 0 ? `${profile.preferences.noticePeriodDays} days` : 'Immediate';
-      case 'salary':
-        return profile.preferences.desiredSalary || null;
-      case 'skills':
-        if (field.controlType === 'tag_input') {
-          return profile.skills.map((s) => s.canonicalName);
-        }
-        return profile.skills.map((s) => s.canonicalName).join(', ');
-      case 'school':
-        return profile.education[0]?.institution || null;
-      case 'degree':
-        return profile.education[0]?.degree || null;
-      case 'education': {
-        const text = `${field.labelText || ''} ${field.name || ''} ${field.domId || ''}`.toLowerCase();
-        if (/school|university|college|institution|academy/.test(text) && !/degree/.test(text)) {
-          return profile.education[0]?.institution || null;
-        }
-        if (/field|major|study|subject/.test(text)) {
-          return profile.education[0]?.field || profile.education[0]?.degree || null;
-        }
-        return profile.education[0]?.degree || null;
-      }
-      case 'language_fluency':
-        return true;
-      case 'language_proficiency':
-        return 'Fluent';
-      case 'cover_letter':
-        return profile.summary || null;
-      default:
-        return null;
+  private getSectionIndex(element: HTMLElement, semanticType: SemanticFieldType): number {
+    const isExp = [
+      'current_company',
+      'current_title',
+      'start_date',
+      'end_date',
+      'job_description',
+      'currently_work_here'
+    ].includes(semanticType);
+
+    const isEdu = ['school', 'degree', 'education'].includes(semanticType);
+
+    if (!isExp && !isEdu) {
+      return 0;
     }
+
+    const repeaterSelector = isExp
+      ? '[data-automation-id*="workExperience"], [data-automation-id*="experience"], fieldset, [class*="experience-item"], [class*="experience-entry"], [class*="work-history"], [class*="job-history"], [data-testid*="experience"]'
+      : '[data-automation-id*="education"], fieldset, [class*="education-item"], [class*="education-entry"], [data-testid*="education"]';
+
+    const container = element.closest<HTMLElement>(repeaterSelector);
+    if (!container || !container.parentElement) {
+      return 0;
+    }
+
+    const dataIdx = container.getAttribute('data-index') || container.getAttribute('data-item-index');
+    if (dataIdx && !isNaN(parseInt(dataIdx, 10))) {
+      return parseInt(dataIdx, 10);
+    }
+
+    const siblings = Array.from(container.parentElement.querySelectorAll(repeaterSelector)).filter(
+      (el) => el.parentElement === container.parentElement
+    );
+    if (siblings.length > 1) {
+      const idx = siblings.indexOf(container);
+      if (idx >= 0) return idx;
+    }
+
+    const heading = container.querySelector('h1, h2, h3, h4, h5, h6, legend, [role="heading"]');
+    if (heading?.textContent) {
+      const numMatch = heading.textContent.match(/(?:#|\b)(\d+)\b/);
+      if (numMatch) {
+        const parsed = parseInt(numMatch[1], 10);
+        return parsed > 0 ? parsed - 1 : 0;
+      }
+    }
+
+    return 0;
   }
 
   private isHighImpactField(type: SemanticFieldType): boolean {
@@ -638,6 +635,12 @@ class ContentScriptController {
       'salary',
       'work_authorization',
       'visa_status',
+      'sponsorship',
+      'relocation',
+      'criminal_record',
+      'legal_question',
+      'willingness',
+      'security_question',
       'application_question'
     ];
     return highImpact.includes(type);

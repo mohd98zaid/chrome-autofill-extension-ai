@@ -126,12 +126,43 @@ export class DOMScanner {
       };
     }
 
+    // Check for payment / credit card fields (Rule 9: never autofill payment fields)
+    const paymentSelector = [
+      'input[autocomplete*="cc-" i]',
+      'input[autocomplete="credit-card"]',
+      'input[name*="cardnumber" i]',
+      'input[name*="creditcard" i]',
+      'input[id*="cvv" i]',
+      'input[id*="cvc" i]',
+      'iframe[src*="stripe" i]',
+      'iframe[src*="braintree" i]',
+      'iframe[src*="paypal" i]',
+      '.stripe-element',
+      '#card-element'
+    ].join(',');
+    const paymentEl = root.querySelector<HTMLElement>(paymentSelector);
+    if (paymentEl && this.isVisible(paymentEl)) {
+      return {
+        type: 'payment',
+        message: 'Payment / card details form detected. Automation paused.'
+      };
+    }
+
+    // Check for password challenge fields (Rule 9: never autofill password fields)
+    const passwordInput = root.querySelector<HTMLInputElement>('input[type="password"]');
+    if (passwordInput && this.isVisible(passwordInput)) {
+      return {
+        type: 'password',
+        message: 'Password / security authentication field detected. Automation paused.'
+      };
+    }
+
     return undefined;
   }
 
   private discoverElements(root: ParentNode): HTMLElement[] {
     const selector = [
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"])',
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="password"])',
       'textarea',
       'select',
       'mat-select',

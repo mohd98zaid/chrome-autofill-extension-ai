@@ -143,7 +143,7 @@ export interface AIResumeParseResponse {
   };
   skills: Array<{
     canonicalName: string;
-    proficiency: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+    proficiency: 'beginner' | 'intermediate' | 'advanced' | 'expert' | 'unknown';
   }>;
   experiences: Array<{
     company: string;

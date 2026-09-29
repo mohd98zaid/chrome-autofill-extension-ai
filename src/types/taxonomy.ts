@@ -58,6 +58,12 @@ export type SemanticFieldType =
   | 'end_date'
   | 'currently_work_here'
   | 'salutation'
+  | 'sponsorship'
+  | 'relocation'
+  | 'criminal_record'
+  | 'legal_question'
+  | 'willingness'
+  | 'security_question'
   | 'custom'
   | 'unknown';
 

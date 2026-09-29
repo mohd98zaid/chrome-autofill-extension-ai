@@ -27,7 +27,7 @@ export const SkillSchema = z.object({
   id: safeString(),
   canonicalName: z.preprocess((val) => (val === null || val === undefined ? '' : String(val).trim()), z.string().min(1)),
   aliases: z.preprocess((val) => (Array.isArray(val) ? val.filter((x) => typeof x === 'string') : []), z.array(z.string()).default([])),
-  proficiency: z.enum(['beginner', 'intermediate', 'advanced', 'expert']).catch('intermediate').default('intermediate'),
+  proficiency: z.enum(['beginner', 'intermediate', 'advanced', 'expert', 'unknown']).catch('unknown').default('unknown'),
   years: z.preprocess((val) => (val === null || val === undefined || isNaN(Number(val)) ? null : Number(val)), z.number().nullable().default(null)),
   source: z.preprocess((val) => (Array.isArray(val) ? val.filter((x) => typeof x === 'string') : ['profile']), z.array(z.string()).default(['profile'])),
   verified: z.preprocess((val) => (val === null || val === undefined ? true : Boolean(val)), z.boolean().default(true))
@@ -143,8 +143,8 @@ export type ProfileLinks = z.infer<typeof LinksSchema>;
  * Preferences Schema
  */
 export const PreferencesSchema = z.object({
-  workAuthorization: safeString('Authorized to work in US'),
-  visaStatus: safeString('Citizen/Green Card'),
+  workAuthorization: safeString(''),
+  visaStatus: safeString(''),
   requiresSponsorship: z.preprocess((val) => Boolean(val), z.boolean().default(false)),
   noticePeriodDays: z.preprocess((val) => (val === null || val === undefined || isNaN(Number(val)) ? 0 : Number(val)), z.number().default(0)),
   desiredSalary: safeString(),
@@ -201,8 +201,8 @@ export const ProfileSchema = z.object({
   certifications: z.array(CertificationSchema).default([]),
   projects: z.array(ProjectSchema).default([]),
   preferences: PreferencesSchema.default({
-    workAuthorization: 'Authorized to work in US',
-    visaStatus: 'Citizen/Green Card',
+    workAuthorization: '',
+    visaStatus: '',
     requiresSponsorship: false,
     noticePeriodDays: 0,
     desiredSalary: '',

@@ -75,4 +75,5 @@ export interface PageScannedPayload {
 export interface TriggerFillPayload {
   fieldIds?: string[];
   forceAll?: boolean;
+  profileId?: string;
 }

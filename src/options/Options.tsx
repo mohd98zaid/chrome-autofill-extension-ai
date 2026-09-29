@@ -75,27 +75,27 @@ export const Options: React.FC = () => {
   const [jsonPasteText, setJsonPasteText] = useState('');
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const MOHAMMAD_ZAID_CV_TEXT = `Mohammad Zaid
-GenAI Engineer & Architect | 5.8+ Years | TCS | Lucknow, India
-+91 8726196645 | Email: mohd98zaid@gmail.com | LinkedIn: https://linkedin.com/in/mohd98zaid | GitHub: https://github.com/mohd98zaid | Portfolio: https://mohd98zaid.netlify.app/
-Nationality: Indian | Visa: Open to Sponsorship | Notice Period: 15 Days | Open to Relocation
+  const SAMPLE_CV_TEXT = `Alex Taylor
+Senior Full-Stack Engineer | 5+ Years | San Francisco, CA
++1 555-0199 | Email: alex.taylor@example.com | LinkedIn: https://linkedin.com/in/alextaylor | GitHub: https://github.com/alextaylor | Portfolio: https://alextaylor.dev
+Nationality: American | Visa: Citizen | Notice Period: 2 Weeks | Open to Remote
 
 PROFESSIONAL SUMMARY
-GenAI Architect & AI Engineer with 5.8+ years at Tata Consultancy Services (TCS), specializing in production-grade LLM systems, agentic pipelines, and RAG architectures for enterprise clients across Healthcare and BFSI. Hands-on with LangChain, LangGraph, Claude AI, FastAPI, and cloud AI platforms (Azure OpenAI, AWS Bedrock). Open to Senior GenAI Architect / Agentic AI Engineering Lead roles across the GCC region.
+Experienced Full-Stack Software Engineer with 5+ years building scalable distributed web applications, cloud-native services, and AI-assisted tooling using React, TypeScript, Node.js, and Python.
 
 CORE COMPETENCIES & KEY SKILLS
-Python, LangChain, LangGraph, LangSmith, Claude AI, Azure OpenAI, AWS Bedrock, CrewAI, AutoGen, FastAPI, MLOps, LLMOps, Vector Databases (FAISS, Chroma, Pinecone), Figma-to-React Automation, AST-based Code Analysis, Docker, CI/CD, Git, Kafka, Redis Streams, PostgreSQL, TimescaleDB, SQL, Next.js, TypeScript, React, Prompt Engineering, RAG, Agentic Workflows
+TypeScript, React, Python, Node.js, Next.js, PostgreSQL, Docker, Kubernetes, AWS, GraphQL, REST APIs, CI/CD, Git, Tailwind CSS
 
 EXPERIENCE
-Tata Consultancy Services · System Engineer (GenAI Architect & Team Lead)
-New Delhi | Apr 2021 – Present
-- Architected enterprise AI applications that auto-generate business logic from code flow diagrams using LangChain and Python, cutting manual analysis time by ~50%.
-- Designed production RAG pipelines with vector stores (FAISS) and LLMs for context-aware document retrieval.
-- Developed end-to-end Figma-to-React pipeline with Claude AI and Playwright achieving 80%+ design-system compliance.
+Acme Corp · Senior Software Engineer
+San Francisco, CA | Jan 2021 – Present
+- Led architecture and deployment of real-time collaboration microservices serving 1M+ active users.
+- Optimized query latency by 40% across PostgreSQL and Redis caching tiers.
+- Mentored junior engineers and instituted automated end-to-end testing practices.
 
 EDUCATION
-Dr. APJ Abdul Kalam Technical University · B. Tech - Computer Science & Engineering
-Lucknow | Aug 2015 – Jun 2019`;
+University of California, Berkeley · B.S. in Computer Science
+Berkeley, CA | Aug 2016 – May 2020`;
 
   const handleImportResume = () => {
     if (!resumeText.trim()) return;
@@ -1762,7 +1762,7 @@ Lucknow | Aug 2015 – Jun 2019`;
 
             <textarea
               rows={10}
-              placeholder="Paste your CV text here (e.g. Mohammad Zaid, Email: mohd98zaid@gmail.com, Phone, Skills, Experiences)..."
+              placeholder="Paste your CV text here (e.g. Alex Taylor, Email: alex.taylor@example.com, Phone, Skills, Experiences)..."
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
               className="w-full p-3 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono"
@@ -1771,11 +1771,11 @@ Lucknow | Aug 2015 – Jun 2019`;
             <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
-                onClick={() => setResumeText(MOHAMMAD_ZAID_CV_TEXT)}
+                onClick={() => setResumeText(SAMPLE_CV_TEXT)}
                 className="py-1.5 px-3 text-xs text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg font-medium border border-indigo-200 transition-colors flex items-center space-x-1"
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>Load Mohammad Zaid's CV</span>
+                <span>Load Sample CV</span>
               </button>
               <div className="flex items-center space-x-2">
                 <button
@@ -1835,7 +1835,7 @@ Lucknow | Aug 2015 – Jun 2019`;
               rows={12}
               value={jsonPasteText}
               onChange={(e) => setJsonPasteText(e.target.value)}
-              placeholder={`{\n  "identity": {\n    "fullName": "Mohammad Zaid",\n    "email": "mohd98zaid@gmail.com",\n    "phone": "+91 8726196645"\n  },\n  "location": {\n    "city": "Lucknow",\n    "country": "India"\n  },\n  "skills": [\n    { "canonicalName": "Python", "proficiency": "expert" }\n  ]\n}`}
+              placeholder={`{\n  "identity": {\n    "fullName": "Alex Taylor",\n    "email": "alex.taylor@example.com",\n    "phone": "+1 555-0199"\n  },\n  "location": {\n    "city": "San Francisco",\n    "country": "United States"\n  },\n  "skills": [\n    { "canonicalName": "TypeScript", "proficiency": "advanced" }\n  ]\n}`}
               className="w-full p-3 font-mono text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
             />
 

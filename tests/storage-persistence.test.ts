@@ -109,8 +109,8 @@ describe('StorageService Persistence with chrome.storage.local', () => {
 
   it('falls back to default profile if storage is empty', async () => {
     const profile = await storage.getProfile();
-    expect(profile).toBeDefined();
-    expect(profile.identity.fullName).toBe('Mohammad Zaid');
+    expect(profile.id).toBe('profile_default');
+    expect(profile.identity.fullName).toBe('');
   });
 
   it('successfully deletes a profile and updates active profile if needed', async () => {

@@ -221,103 +221,138 @@ export class LocalAIProvider implements AIProvider {
   }
 
   public async parseResume(req: AIResumeParseRequest): Promise<AIResumeParseResponse> {
-    const text = req.resumeText;
+    const text = req.resumeText || '';
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 
-    // Email
+    // 1. Email & Phone
     const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    // Phone (international + standard)
     const phoneMatch = text.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+91[\s-]?\d{10}/);
 
-    // Name (first non-meta line)
-    let fullName = 'Mohammad Zaid';
+    // 2. Name extraction (first non-meta line)
+    let fullName = '';
     for (const line of lines) {
-      if (!/curriculum|resume|cv|page\s+\d/i.test(line) && line.length < 50 && /^[a-zA-Z\s.'-]+$/.test(line)) {
-        fullName = line;
+      if (
+        !/curriculum|resume|cv|page\s+\d|email|phone|http|github|linkedin|portfolio/i.test(line) &&
+        line.length >= 2 &&
+        line.length < 50 &&
+        /^[a-zA-Z\s.'-]+$/.test(line)
+      ) {
+        fullName = line.trim();
         break;
       }
     }
-    const nameParts = fullName.split(/\s+/);
-    const firstName = nameParts[0] || 'Mohammad';
-    const lastName = nameParts.slice(1).join(' ') || 'Zaid';
+    const nameParts = fullName ? fullName.split(/\s+/) : [];
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
-    // Links
+    // 3. Links
     const linkedinMatch = text.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9_.-]+/i);
     const githubMatch = text.match(/https?:\/\/(?:www\.)?github\.com\/[a-zA-Z0-9_.-]+/i);
     const portfolioMatch = text.match(/https?:\/\/[a-zA-Z0-9_.-]+\.(?:netlify\.app|vercel\.app|io|dev|me)(?:\/[^\s]*)?/i);
 
-    // Location
-    let city = 'Lucknow';
-    let country = 'India';
-    if (/Dubai|UAE|United Arab Emirates/i.test(text)) {
-      country = 'UAE';
-      city = 'Dubai';
-    } else if (/Lucknow/i.test(text)) {
-      city = 'Lucknow';
-      country = 'India';
-    } else if (/Delhi|New Delhi/i.test(text)) {
-      city = 'New Delhi';
-      country = 'India';
+    // 4. Location extraction
+    let city = '';
+    let country = '';
+    const locationMatch =
+      text.match(/(?:Location|Address|City):\s*([a-zA-Z\s]+),\s*([a-zA-Z\s]+)/i) ||
+      text.match(/([a-zA-Z\s]+),\s*(India|United States|USA|UK|United Kingdom|UAE|Canada|Germany|Australia|Singapore)/i);
+    if (locationMatch) {
+      city = locationMatch[1].trim();
+      country = locationMatch[2].trim();
     }
 
-    // Skills
+    // 5. Skills extraction (Rules 4 & 5: data-driven, never default proficiency to 'expert')
     const skillCatalog = [
       'Python', 'LangChain', 'LangGraph', 'LangSmith', 'Claude AI', 'Azure OpenAI',
       'AWS Bedrock', 'CrewAI', 'AutoGen', 'FastAPI', 'MLOps', 'LLMOps', 'Vector Databases',
       'FAISS', 'Chroma', 'Pinecone', 'Figma-to-React', 'AST-based Code Analysis', 'KDB+/q',
       'Docker', 'Docker Compose', 'CI/CD', 'Git', 'Kafka', 'Redis Streams', 'PostgreSQL',
       'TimescaleDB', 'SQL', 'Next.js', 'TypeScript', 'React', 'Prompt Engineering',
-      'RAG', 'Agentic Workflows', 'Playwright', 'JavaScript', 'Tailwind', 'HTML', 'CSS'
+      'RAG', 'Agentic Workflows', 'Playwright', 'JavaScript', 'Tailwind', 'HTML', 'CSS',
+      'Node.js', 'Java', 'C++', 'Go', 'Kubernetes', 'AWS', 'GCP', 'Azure', 'Linux'
     ];
 
-    const detectedSkills: Array<{ canonicalName: string; proficiency: 'beginner' | 'intermediate' | 'advanced' | 'expert' }> = [];
+    const detectedSkills: Array<{
+      canonicalName: string;
+      proficiency: 'beginner' | 'intermediate' | 'advanced' | 'expert' | 'unknown';
+    }> = [];
+
     const lowerText = text.toLowerCase();
     for (const skill of skillCatalog) {
-      if (lowerText.includes(skill.toLowerCase())) {
+      const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`\\b${escaped}\\b`, 'i');
+      if (pattern.test(lowerText)) {
+        const profMatch = new RegExp(`${escaped}\\s*\\((beginner|intermediate|advanced|expert)\\)`, 'i').exec(text);
+        const proficiency = profMatch
+          ? (profMatch[1].toLowerCase() as 'beginner' | 'intermediate' | 'advanced' | 'expert')
+          : 'unknown';
+
         detectedSkills.push({
           canonicalName: skill,
-          proficiency: 'expert'
+          proficiency
         });
       }
     }
 
-    // Summary extraction
-    let summary = 'GenAI Architect & AI Engineer specializing in production-grade LLM systems, agentic pipelines, and RAG architectures.';
-    const summaryMatch = text.match(/PROFESSIONAL SUMMARY\s*([\s\S]*?)(?=CORE COMPETENCIES|EXPERIENCE|KEY SKILLS|$)/i);
+    // 6. Summary extraction
+    let summary = '';
+    const summaryMatch = text.match(
+      /(?:PROFESSIONAL SUMMARY|SUMMARY|PROFILE|ABOUT ME)\s*[:\n]\s*([\s\S]*?)(?=(?:CORE COMPETENCIES|EXPERIENCE|KEY SKILLS|EDUCATION|WORK HISTORY|$))/i
+    );
     if (summaryMatch && summaryMatch[1]?.trim()) {
       summary = summaryMatch[1].trim().replace(/\s+/g, ' ').slice(0, 500);
     }
 
-    // Experience
-    const experiences: AIResumeParseResponse['experiences'] = [
-      {
-        company: 'Tata Consultancy Services',
-        title: 'System Engineer (GenAI Architect & Team Lead)',
-        startDate: 'Apr 2021',
-        endDate: 'Present',
-        location: 'New Delhi, India',
-        description: 'GenAI Architect & Team Lead specializing in production-grade LLM systems, agentic pipelines, and RAG architectures.'
+    // 7. Experience extraction
+    const experiences: AIResumeParseResponse['experiences'] = [];
+    const expSectionMatch = text.match(
+      /(?:EXPERIENCE|WORK HISTORY|EMPLOYMENT HISTORY)\s*[:\n]\s*([\s\S]*?)(?=(?:EDUCATION|PROJECTS|CERTIFICATIONS|SKILLS|$))/i
+    );
+    if (expSectionMatch) {
+      const expBlock = expSectionMatch[1];
+      const entryRegex =
+        /([A-Z][A-Za-z0-9\s&.,'-]+?)\s*[–—\-•|]\s*([A-Za-z\s()]+)\n(?:([A-Za-z\s,]+)\s*[|–—]\s*)?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})\s*[-–—]\s*([A-Za-z0-9\s]+)/gi;
+      let match;
+      while ((match = entryRegex.exec(expBlock)) !== null) {
+        experiences.push({
+          company: match[1].trim(),
+          title: match[2].trim(),
+          location: match[3]?.trim() || '',
+          startDate: match[4].trim(),
+          endDate: match[5].trim(),
+          description: ''
+        });
       }
-    ];
+    }
 
-    // Education
-    const education: AIResumeParseResponse['education'] = [
-      {
-        institution: 'Dr. APJ Abdul Kalam Technical University',
-        degree: 'B. Tech',
-        field: 'Computer Science & Engineering',
-        startDate: 'Aug 2015',
-        endDate: 'Jun 2019'
+    // 8. Education extraction
+    const education: AIResumeParseResponse['education'] = [];
+    const eduSectionMatch = text.match(
+      /(?:EDUCATION|ACADEMIC BACKGROUND)\s*[:\n]\s*([\s\S]*?)(?=(?:CERTIFICATIONS|PROJECTS|SKILLS|EXPERIENCE|$))/i
+    );
+    if (eduSectionMatch) {
+      const eduBlock = eduSectionMatch[1];
+      const eduRegex =
+        /([A-Z][A-Za-z0-9\s&.,'-]+?)\s*[–—\-•|]\s*([A-Za-z0-9\s.]+)(?:\s*[–—\-•|]\s*([A-Za-z0-9\s&]+))?\n(?:.*?)?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)?[a-z]*\s*\d{4})?\s*[-–—]\s*([A-Za-z0-9\s]+)?/gi;
+      let match;
+      while ((match = eduRegex.exec(eduBlock)) !== null) {
+        education.push({
+          institution: match[1].trim(),
+          degree: match[2].trim(),
+          field: match[3]?.trim() || '',
+          startDate: match[4]?.trim() || '',
+          endDate: match[5]?.trim() || ''
+        });
       }
-    ];
+    }
 
     return {
       identity: {
         firstName,
         lastName,
         fullName,
-        email: emailMatch ? emailMatch[0] : 'mohd98zaid@gmail.com',
-        phone: phoneMatch ? phoneMatch[0] : '+91 8726196645'
+        email: emailMatch ? emailMatch[0] : '',
+        phone: phoneMatch ? phoneMatch[0].trim() : ''
       },
       location: {
         city,
@@ -325,18 +360,11 @@ export class LocalAIProvider implements AIProvider {
       },
       summary,
       links: {
-        linkedin: linkedinMatch ? linkedinMatch[0] : 'https://linkedin.com/in/mohd98zaid',
-        github: githubMatch ? githubMatch[0] : 'https://github.com/mohd98zaid',
-        portfolio: portfolioMatch ? portfolioMatch[0] : 'https://mohd98zaid.netlify.app/'
+        linkedin: linkedinMatch ? linkedinMatch[0] : undefined,
+        github: githubMatch ? githubMatch[0] : undefined,
+        portfolio: portfolioMatch ? portfolioMatch[0] : undefined
       },
-      skills: detectedSkills.length > 0 ? detectedSkills : [
-        { canonicalName: 'Python', proficiency: 'expert' },
-        { canonicalName: 'LangChain', proficiency: 'expert' },
-        { canonicalName: 'LangGraph', proficiency: 'expert' },
-        { canonicalName: 'FastAPI', proficiency: 'advanced' },
-        { canonicalName: 'React', proficiency: 'advanced' },
-        { canonicalName: 'TypeScript', proficiency: 'advanced' }
-      ],
+      skills: detectedSkills,
       experiences,
       education
     };
