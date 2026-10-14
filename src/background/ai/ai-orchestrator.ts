@@ -88,7 +88,7 @@ export class AIOrchestrator {
     // Grounding check
     const grounding = await provider.validateGrounding({
       textToAudit: result.coverLetter,
-      approvedEvidence: req.profileEvidence
+      approvedEvidence: req.profileEvidence || []
     });
 
     if (grounding.status === 'failed') {

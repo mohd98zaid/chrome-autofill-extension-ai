@@ -13,7 +13,7 @@ import {
 import { FieldDescriptor, SemanticFieldType } from '../types/taxonomy';
 import { UserProfile, Settings, CustomQA } from '../types/profile';
 import { FilledFieldRecord, FieldStatus } from '../types/session';
-import { resolveFieldValue } from './resolver/field-resolver';
+import { resolveFieldValue, interpolateCoverLetter } from './resolver/field-resolver';
 import { logger } from '../utils/logger';
 
 class ContentScriptController {
@@ -211,6 +211,12 @@ class ContentScriptController {
         return 0;
       });
 
+      // Extract page JD context once for application-aware field resolution & cover letter synthesis
+      const pageJd = this.jdExtractor.extract();
+      const detectedCompany = pageJd?.company || this.jdExtractor.findCompany() || '';
+      const detectedRole = pageJd?.title || this.jdExtractor.findJobTitle() || '';
+      const detectedJD = pageJd?.description || '';
+
       const failedSelects: { field: FieldDescriptor; element: HTMLElement; targetValue: any; classification: any }[] = [];
 
       for (const field of descriptorsToFill) {
@@ -228,7 +234,12 @@ class ContentScriptController {
           field,
           profile,
           sectionIndex,
-          sectionHeading: field.sectionHeading
+          sectionHeading: field.sectionHeading,
+          applicationContext: {
+            company: detectedCompany,
+            role: detectedRole,
+            jdText: detectedJD
+          }
         });
 
         // Security check: High impact fields check (Rule 11: forceAll must NEVER bypass high impact/safety fields!)
@@ -263,6 +274,57 @@ class ContentScriptController {
 
         let targetValue: string | string[] | boolean | null =
           resolveRes.status === 'RESOLVED' && resolveRes.value !== undefined ? resolveRes.value : null;
+
+        // Dynamic AI or Predefined Cover Letter Synthesis (grounded in JD & Company)
+        if (
+          classification.semanticType === 'cover_letter' ||
+          (field.controlType === 'textarea' && /cover\s*letter/i.test(field.labelText || field.placeholder || ''))
+        ) {
+          let letterContent: string | null = null;
+
+          // Step 1: If AI enabled, generate tailored cover letter matching JD & company
+          if (settings.aiEnabled) {
+            logger.info('ContentScript', `Synthesizing tailored AI cover letter for ${detectedCompany} - ${detectedRole}`);
+            letterContent = await this.generateTailoredCoverLetter(
+              profile,
+              detectedCompany,
+              detectedRole,
+              detectedJD
+            );
+          }
+
+          // Step 2: If AI was not used or returned empty, use predefined cover letter
+          if (!letterContent && profile.coverLetter?.trim()) {
+            const candidateName =
+              profile.identity.fullName ||
+              `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
+              'Candidate';
+            const topSkills = profile.skills.slice(0, 6).map((s) => s.canonicalName).join(', ');
+            letterContent = interpolateCoverLetter(profile.coverLetter, {
+              company: detectedCompany || 'Hiring Team',
+              role: detectedRole || 'Open Position',
+              candidateName,
+              skills: topSkills
+            });
+          }
+
+          // Step 3: Grounded fallback if neither AI nor predefined cover letter exists
+          if (!letterContent) {
+            const candidateName =
+              profile.identity.fullName ||
+              `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
+              'Candidate';
+            const primaryExp = profile.experiences?.[0];
+            const topSkills = profile.skills.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'relevant skills';
+            const expSentence = primaryExp
+              ? `As a ${primaryExp.title} at ${primaryExp.company}${primaryExp.description ? ` (${primaryExp.description.slice(0, 160)}...)` : ''}`
+              : (profile.summary || 'With extensive hands-on experience delivering high-quality solutions');
+
+            letterContent = `Dear Hiring Team at ${detectedCompany || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${detectedRole || 'open position'} role. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on solving complex challenges, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\n${candidateName}`;
+          }
+
+          targetValue = letterContent;
+        }
 
         // Real-Time Intelligent Agent for unmapped boxes, custom prompts & application questions
         if (targetValue === null || targetValue === undefined || targetValue === '') {
@@ -887,6 +949,62 @@ class ContentScriptController {
       logger.warn('ContentScript', 'Dynamic AI answering failed', { error: String(err) });
       return null;
     }
+  }
+
+  public async generateTailoredCoverLetter(
+    profile: UserProfile,
+    company: string,
+    role: string,
+    jdText: string
+  ): Promise<string | null> {
+    const candidateName =
+      profile.identity.fullName ||
+      `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
+      'Candidate';
+
+    const evidence: string[] = [
+      `${candidateName}, based in ${profile.location.city || ''} ${profile.location.country || ''}`.trim(),
+      profile.summary,
+      ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
+      `Key skills: ${profile.skills.map((s) => s.canonicalName).join(', ')}`
+    ].filter(Boolean);
+
+    try {
+      const response = await new Promise<{ coverLetter?: string }>((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: 'UI_GENERATE_COVER_LETTER',
+            source: 'content',
+            payload: {
+              company: company || 'Hiring Team',
+              role: role || 'Target Role',
+              jobDescription: jdText || '',
+              jdText: jdText || '',
+              profileEvidence: evidence,
+              candidateName,
+              predefinedTemplate: profile.coverLetter || '',
+              tone: 'professional'
+            },
+            timestamp: new Date().toISOString()
+          },
+          (res) => {
+            if (chrome.runtime.lastError) {
+              resolve({});
+            } else {
+              resolve(res?.data || res || {});
+            }
+          }
+        );
+      });
+
+      if (response?.coverLetter && response.coverLetter.trim().length > 20) {
+        return response.coverLetter.trim();
+      }
+    } catch (err) {
+      logger.warn('ContentScript', 'Tailored cover letter generation error', { error: String(err) });
+    }
+
+    return null;
   }
 
   private handleMutation() {

@@ -55,6 +55,7 @@ describe('StorageService Persistence with chrome.storage.local', () => {
         zipCode: '94105'
       },
       summary: 'Senior Cloud AI Architect',
+      coverLetter: '',
       links: {
         linkedin: 'https://linkedin.com/in/janedev',
         github: 'https://github.com/janedev',
@@ -120,6 +121,7 @@ describe('StorageService Persistence with chrome.storage.local', () => {
       identity: { firstName: 'Alice', lastName: 'Smith', fullName: 'Alice Smith', email: 'alice@example.com', phone: '123' },
       location: { addressLine: '', city: 'London', state: '', country: 'UK', zipCode: '' },
       summary: 'Engineer',
+      coverLetter: '',
       links: { linkedin: '', github: '', portfolio: '' },
       skills: [],
       experiences: [],

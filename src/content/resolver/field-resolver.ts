@@ -306,14 +306,52 @@ export function resolveFieldValue(options: ResolveFieldOptions): ResolveFieldRes
     }
 
     case 'cover_letter': {
-      const val = profile.summary?.trim();
-      if (val) return { status: 'RESOLVED', value: val, source: 'profile.summary', confidence: 0.90 };
-      return { status: 'UNKNOWN', reason: 'Profile summary is empty' };
+      const predefined = profile.coverLetter?.trim();
+      if (predefined) {
+        const company = (options.applicationContext?.company as string) || '';
+        const role = (options.applicationContext?.role as string) || '';
+        const candidateName =
+          profile.identity.fullName ||
+          `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
+          '';
+        const skills = profile.skills.map((s) => s.canonicalName).join(', ');
+        const interpolated = interpolateCoverLetter(predefined, { company, role, candidateName, skills });
+        return { status: 'RESOLVED', value: interpolated, source: 'profile.coverLetter', confidence: 0.95 };
+      }
+      return { status: 'UNKNOWN', reason: 'Cover letter will be synthesized dynamically from JD and company' };
     }
 
     default:
       return { status: 'UNKNOWN', reason: `Unrecognized semantic type: ${semanticType}` };
   }
+}
+
+/**
+ * Interpolates variables ({company}, {role}, {candidateName}, {skills}) into a cover letter template.
+ */
+export function interpolateCoverLetter(
+  template: string,
+  context: {
+    company?: string;
+    role?: string;
+    candidateName?: string;
+    skills?: string;
+  }
+): string {
+  let result = template;
+  if (context.company) {
+    result = result.replace(/\{(?:company|companyName|organization)\}/gi, context.company);
+  }
+  if (context.role) {
+    result = result.replace(/\{(?:role|jobTitle|title|position|post)\}/gi, context.role);
+  }
+  if (context.candidateName) {
+    result = result.replace(/\{(?:name|candidateName|fullName|applicantName)\}/gi, context.candidateName);
+  }
+  if (context.skills) {
+    result = result.replace(/\{(?:skills|keySkills|technologies)\}/gi, context.skills);
+  }
+  return result;
 }
 
 function isExperienceSection(field: FieldDescriptor, sectionHeading?: string): boolean {

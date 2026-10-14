@@ -6,21 +6,25 @@ import {
   FileText,
   Sparkles,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Copy
 } from 'lucide-react';
 import { ApplicationSession } from '../types/session';
+import { UserProfile } from '../types/profile';
+import { interpolateCoverLetter } from '../content/resolver/field-resolver';
 
 export const ReviewPanel: React.FC = () => {
   const [session, setSession] = useState<ApplicationSession | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [coverLetter, setCoverLetter] = useState<string>('');
   const [generatingLetter, setGeneratingLetter] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
-    loadSession();
+    loadData();
   }, []);
 
-  const loadSession = async () => {
+  const loadData = async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
@@ -31,6 +35,22 @@ export const ReviewPanel: React.FC = () => {
           }
         );
       }
+
+      chrome.runtime.sendMessage(
+        { type: 'UI_GET_PROFILE', source: 'review', timestamp: new Date().toISOString() },
+        (res) => {
+          if (res?.success && res.data) {
+            setProfile(res.data);
+            if (res.data.coverLetter && !coverLetter) {
+              const candidateName = res.data.identity?.fullName || `${res.data.identity?.firstName || ''} ${res.data.identity?.lastName || ''}`.trim() || 'Candidate';
+              const company = session?.jobDetails?.company || (session?.domain ? session.domain.replace(/^www\./, '').replace(/\..*$/, '').replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Hiring Team');
+              const role = session?.jobDetails?.title || 'Open Position';
+              const skills = res.data.skills?.slice(0, 6).map((s: any) => s.canonicalName).join(', ') || '';
+              setCoverLetter(interpolateCoverLetter(res.data.coverLetter, { company, role, candidateName, skills }));
+            }
+          }
+        }
+      );
     } catch (e) {
       console.error(e);
     }
@@ -50,22 +70,41 @@ export const ReviewPanel: React.FC = () => {
 
   const handleGenerateCoverLetter = () => {
     setGeneratingLetter(true);
+
+    const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || 'Candidate';
+    const company = session?.jobDetails?.company || (session?.domain ? session.domain.replace(/^www\./, '').replace(/\..*$/, '').replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Hiring Team');
+    const role = session?.jobDetails?.title || 'Open Position';
+    const jdText = session?.jobDetails?.description || '';
+    const skillsList = profile?.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'relevant skills';
+
+    const evidence: string[] = profile ? [
+      `${candidateName}, based in ${profile.location?.city || ''} ${profile.location?.country || ''}`.trim(),
+      profile.summary,
+      ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
+      `Key skills: ${skillsList}`
+    ].filter(Boolean) : [];
+
     chrome.runtime.sendMessage(
       {
         type: 'UI_GENERATE_COVER_LETTER',
         source: 'review',
         payload: {
-          role: 'Candidate',
-          company: session?.domain || 'Company',
-          jdText: '',
-          profileEvidence: ['TypeScript', 'React', 'Problem Solving', 'Team Leadership']
+          role,
+          company,
+          candidateName,
+          predefinedTemplate: profile?.coverLetter || undefined,
+          jobDescription: jdText,
+          jdText,
+          profileEvidence: evidence.length > 0 ? evidence : ['Relevant professional experience and skills']
         },
         timestamp: new Date().toISOString()
       },
       (res) => {
         setGeneratingLetter(false);
-        if (res?.success) {
+        if (res?.success && res.data?.coverLetter) {
           setCoverLetter(res.data.coverLetter);
+        } else if (profile?.coverLetter) {
+          setCoverLetter(interpolateCoverLetter(profile.coverLetter, { company, role, candidateName, skills: skillsList }));
         }
       }
     );
@@ -177,9 +216,10 @@ export const ReviewPanel: React.FC = () => {
               </span>
               <button
                 onClick={() => navigator.clipboard.writeText(coverLetter)}
-                className="text-blue-600 hover:underline"
+                className="text-blue-600 hover:underline flex items-center space-x-1"
               >
-                Copy to Clipboard
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy to Clipboard</span>
               </button>
             </div>
           </div>

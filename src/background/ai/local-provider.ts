@@ -147,8 +147,26 @@ export class LocalAIProvider implements AIProvider {
   }
 
   public async generateCoverLetter(req: AICoverLetterRequest): Promise<AICoverLetterResponse> {
-    const evidenceList = req.profileEvidence.slice(0, 5).join(', ');
-    const letter = `Dear Hiring Team at ${req.company},\n\nI am writing to express my strong interest in the ${req.role} role. With hands-on experience and verified expertise in ${evidenceList}, I am confident in my ability to contribute effectively to your team.\n\nThroughout my career, I have prioritized high engineering standards, collaborative problem solving, and business value. I look forward to the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\nCandidate`;
+    const candidateName = req.candidateName || 'Applicant';
+    const company = req.company || 'Hiring Team';
+    const role = req.role || 'Open Position';
+    const evidenceList = (req.profileEvidence || []).slice(0, 5).join(', ') || 'professional domain expertise';
+
+    let letter = '';
+    if (req.predefinedTemplate && req.predefinedTemplate.trim().length > 10) {
+      letter = req.predefinedTemplate
+        .replace(/\{(?:company|companyName|organization)\}/gi, company)
+        .replace(/\{(?:role|jobTitle|title|position|post)\}/gi, role)
+        .replace(/\{(?:name|candidateName|fullName|applicantName)\}/gi, candidateName)
+        .replace(/\{(?:skills|keySkills|technologies)\}/gi, evidenceList);
+
+      if (!letter.includes(candidateName)) {
+        letter = `${letter.trim()}\n\nSincerely,\n${candidateName}`;
+      }
+    } else {
+      const jdContext = req.jdText || req.jobDescription ? ` In reviewing your job description, I was especially excited by the technical challenges and mission of your team.` : '';
+      letter = `Dear Hiring Team at ${company},\n\nI am writing to express my strong interest in the ${role} role.${jdContext} With hands-on experience and verified expertise in ${evidenceList}, I am confident in my ability to contribute effectively from day one.\n\nThroughout my career, I have prioritized high engineering standards, collaborative problem solving, and delivering tangible business value. I welcome the opportunity to discuss how my qualifications align with your goals.\n\nSincerely,\n${candidateName}`;
+    }
 
     return {
       coverLetter: letter,

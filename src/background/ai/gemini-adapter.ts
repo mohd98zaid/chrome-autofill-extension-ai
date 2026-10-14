@@ -213,8 +213,12 @@ Output JSON:
   }
 
   public async generateCoverLetter(req: AICoverLetterRequest): Promise<AICoverLetterResponse> {
-    const system = `Create a tailored professional cover letter for the supplied role.
+    const system = `Create a tailored professional cover letter for the supplied role and company.
 Use ONLY verified profile facts, approved resume evidence, and explicit job description information.
+If candidateName is provided, sign off with candidateName (never use placeholders like [Candidate Name] or [Your Name]).
+If company is provided, tailor specifically to that company (never use [Company Name]).
+If role is provided, tailor specifically to that role (never use [Job Title]).
+If predefinedTemplate is provided, use it as the foundational voice and structure, adapting it to match the role and job description.
 Never fabricate metrics or claim experience with technologies absent from evidence.
 Output JSON:
 {

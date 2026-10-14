@@ -36,4 +36,35 @@ describe('LocalAIProvider', () => {
     expect(ungroundedRes.status).toBe('failed');
     expect(ungroundedRes.unsupportedClaims.length).toBeGreaterThan(0);
   });
+
+  it('generates cover letter interpolating predefined template with candidate name and role', async () => {
+    const res = await provider.generateCoverLetter({
+      company: 'Datadog',
+      role: 'Staff SRE',
+      candidateName: 'Jane Doe',
+      predefinedTemplate: 'Dear {company},\n\nI am applying for {role}.\n\nBest,\n{candidateName}'
+    });
+
+    expect(res.groundingStatus).toBe('passed');
+    expect(res.coverLetter).toContain('Dear Datadog');
+    expect(res.coverLetter).toContain('Staff SRE');
+    expect(res.coverLetter).toContain('Jane Doe');
+  });
+
+  it('generates cover letter using JD text, company, and role signed with real candidate name', async () => {
+    const res = await provider.generateCoverLetter({
+      company: 'Stripe',
+      role: 'Backend Engineer',
+      candidateName: 'John Smith',
+      jdText: 'Looking for a Backend Engineer with strong distributed systems skills.',
+      profileEvidence: ['5 years distributed systems experience', 'Go and Rust expertise']
+    });
+
+    expect(res.groundingStatus).toBe('passed');
+    expect(res.coverLetter).toContain('Stripe');
+    expect(res.coverLetter).toContain('Backend Engineer');
+    expect(res.coverLetter).toContain('John Smith');
+    expect(res.coverLetter).not.toContain('[Candidate Name]');
+    expect(res.coverLetter).not.toContain('[Company Name]');
+  });
 });

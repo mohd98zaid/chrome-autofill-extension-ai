@@ -810,6 +810,17 @@ Berkeley, CA | Aug 2016 – May 2020`;
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Professional Summary / Bio</label>
+                <textarea
+                  rows={3}
+                  value={profile.summary || ''}
+                  onChange={(e) => setProfile({ ...profile, summary: e.target.value })}
+                  placeholder="Brief overview of your background, years of experience, and core domains..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                />
+              </div>
             </div>
 
             <div className="pt-4 border-t border-slate-200">
@@ -915,6 +926,47 @@ Berkeley, CA | Aug 2016 – May 2020`;
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800">Predefined Cover Letter Template</h4>
+                  <p className="text-xs text-slate-500">
+                    Use tags to insert auto-detected job & candidate variables. When autofilling or generating, <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px] font-mono">&#123;company&#125;</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px] font-mono">&#123;role&#125;</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px] font-mono">&#123;candidateName&#125;</code>, and <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px] font-mono">&#123;skills&#125;</code> are filled automatically without manual typing.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                <span className="text-[11px] text-slate-500 mr-1">Insert Tag:</span>
+                {[
+                  { tag: '{company}', label: '+ {company}' },
+                  { tag: '{role}', label: '+ {role}' },
+                  { tag: '{candidateName}', label: '+ {candidateName}' },
+                  { tag: '{skills}', label: '+ {skills}' }
+                ].map((item) => (
+                  <button
+                    key={item.tag}
+                    type="button"
+                    onClick={() => {
+                      const current = profile.coverLetter || '';
+                      setProfile({ ...profile, coverLetter: current ? `${current} ${item.tag}` : item.tag });
+                    }}
+                    className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded text-[11px] font-mono transition-colors"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                rows={8}
+                value={profile.coverLetter || ''}
+                onChange={(e) => setProfile({ ...profile, coverLetter: e.target.value })}
+                placeholder="Dear Hiring Team at {company},&#10;&#10;I am excited to apply for the {role} position. With my background in {skills}, I am confident in delivering high impact to your team...&#10;&#10;Sincerely,&#10;{candidateName}"
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-sans leading-relaxed"
+              />
             </div>
 
             <div className="pt-4 border-t border-slate-200 flex justify-end">

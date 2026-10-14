@@ -190,6 +190,7 @@ export const ProfileSchema = z.object({
     zipCode: ''
   }),
   summary: safeString(),
+  coverLetter: safeString(),
   links: LinksSchema.default({
     linkedin: '',
     github: '',

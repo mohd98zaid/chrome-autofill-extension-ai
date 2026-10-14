@@ -72,8 +72,11 @@ export interface AIAnswerResponse {
 export interface AICoverLetterRequest {
   role: string;
   company: string;
-  jdText: string;
-  profileEvidence: string[];
+  jdText?: string;
+  jobDescription?: string;
+  profileEvidence?: string[];
+  candidateName?: string;
+  predefinedTemplate?: string;
   tone?: string;
   length?: 'short' | 'medium' | 'long';
 }

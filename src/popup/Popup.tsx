@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ApplicationSession } from '../types/session';
 import { UserProfile, ProfileSchema } from '../types/profile';
+import { interpolateCoverLetter } from '../content/resolver/field-resolver';
 
 export const Popup: React.FC = () => {
   const [session, setSession] = useState<ApplicationSession | null>(null);
@@ -32,6 +33,8 @@ export const Popup: React.FC = () => {
   const [coverCompany, setCoverCompany] = useState('');
   const [coverRole, setCoverRole] = useState('');
   const [coverTone, setCoverTone] = useState<'professional' | 'concise' | 'confident'>('professional');
+  const [coverLetterMode, setCoverLetterMode] = useState<'ai' | 'template'>('ai');
+  const [templateLetter, setTemplateLetter] = useState('');
   const [generatedLetter, setGeneratedLetter] = useState('');
   const [generatingLetter, setGeneratingLetter] = useState(false);
   const [insertingLetter, setInsertingLetter] = useState(false);
@@ -425,12 +428,14 @@ export const Popup: React.FC = () => {
   const handleOpenCoverLetterModal = async () => {
     let detectedRole = session?.jobDetails?.title || '';
     let detectedCompany = session?.jobDetails?.company || '';
+    let tabTitle = '';
 
     // If not already in session, actively request extraction from the active tab or background
-    if (!detectedRole || !detectedCompany) {
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        tabTitle = tab.title || '';
+        if (tab.id && (!detectedRole || !detectedCompany)) {
           const jdRes: any = await new Promise((resolve) => {
             chrome.tabs.sendMessage(
               tab.id!,
@@ -450,14 +455,24 @@ export const Popup: React.FC = () => {
             }
           }
         }
-      } catch (err) {
-        console.warn('Job details detection error:', err);
+      }
+    } catch (err) {
+      console.warn('Job details detection error:', err);
+    }
+
+    // Parse role/company from tab title if not yet resolved (e.g. "Software Engineer - Google")
+    if (!detectedRole && tabTitle) {
+      const parts = tabTitle.split(/[-|–—·•]/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        detectedRole = parts[0];
+        if (!detectedCompany) detectedCompany = parts[1];
+      } else if (parts.length === 1 && !parts[0].toLowerCase().includes('application')) {
+        detectedRole = parts[0];
       }
     }
 
-    // Intelligent fallbacks if page detection didn't find specific fields
     if (!detectedRole) {
-      detectedRole = profile?.experiences?.[0]?.title || 'Open Position';
+      detectedRole = 'Open Position';
     }
     if (!detectedCompany) {
       if (session?.domain) {
@@ -473,19 +488,45 @@ export const Popup: React.FC = () => {
 
     setCoverRole(detectedRole);
     setCoverCompany(detectedCompany);
+
+    const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || 'Candidate';
+    const topSkills = profile?.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'technical and professional skills';
+
+    if (profile?.coverLetter) {
+      const interpolated = interpolateCoverLetter(profile.coverLetter, {
+        company: detectedCompany,
+        role: detectedRole,
+        candidateName,
+        skills: topSkills
+      });
+      setTemplateLetter(interpolated);
+    } else {
+      setTemplateLetter('');
+    }
+
     setShowCoverLetterModal(true);
+
+    // Auto-generate AI letter if none exists yet
+    if (!generatedLetter) {
+      triggerGenerateCoverLetter(detectedRole, detectedCompany);
+    }
   };
 
-  const handleGenerateCoverLetter = async () => {
+  const triggerGenerateCoverLetter = (roleArg?: string, companyArg?: string) => {
     if (!profile) return;
+    const roleToUse = (roleArg || coverRole).trim() || 'Open Position';
+    const companyToUse = (companyArg || coverCompany).trim() || 'Hiring Team';
+
     setGeneratingLetter(true);
-    setGeneratedLetter('');
+
+    const candidateName = profile.identity?.fullName || `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim() || 'Candidate';
+    const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'technical and professional skills';
 
     const evidence: string[] = [
-      `${profile.identity.fullName || 'Candidate'}, based in ${profile.location.city || ''} ${profile.location.country || ''}`.trim(),
+      `${candidateName}, based in ${profile.location?.city || ''} ${profile.location?.country || ''}`.trim(),
       profile.summary,
       ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
-      `Key skills: ${profile.skills.map((s) => s.canonicalName).join(', ')}`
+      `Key skills: ${topSkills}`
     ].filter(Boolean);
 
     const jobDescription = session?.jobDetails?.description || '';
@@ -495,9 +536,12 @@ export const Popup: React.FC = () => {
         type: 'UI_GENERATE_COVER_LETTER',
         source: 'popup',
         payload: {
-          company: coverCompany.trim() || 'Hiring Team',
-          role: coverRole.trim() || 'Open Position',
+          company: companyToUse,
+          role: roleToUse,
+          candidateName,
+          predefinedTemplate: profile.coverLetter || undefined,
           jobDescription,
+          jdText: jobDescription,
           profileEvidence: evidence,
           tone: coverTone
         },
@@ -510,21 +554,33 @@ export const Popup: React.FC = () => {
         } else {
           // Dynamic grounded fallback using candidate's verified profile data
           const primaryExp = profile.experiences?.[0];
-          const candidateName = profile.identity.fullName || `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() || 'Candidate';
-          const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'technical and professional skills';
           const expSentence = primaryExp
             ? `As a ${primaryExp.title} at ${primaryExp.company}${primaryExp.description ? ` (${primaryExp.description.slice(0, 160)}...)` : ''}`
             : (profile.summary || 'With a proven track record of delivering high-impact solutions');
 
-          const fallback = `Dear Hiring Team at ${coverCompany.trim() || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${coverRole.trim() || 'open position'} role. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on solving complex challenges, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\n${candidateName}`;
-          setGeneratedLetter(fallback);
+          if (profile.coverLetter) {
+            setGeneratedLetter(interpolateCoverLetter(profile.coverLetter, {
+              company: companyToUse,
+              role: roleToUse,
+              candidateName,
+              skills: topSkills
+            }));
+          } else {
+            const fallback = `Dear Hiring Team at ${companyToUse},\n\nI am writing to express my strong enthusiasm for the ${roleToUse} role. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on solving complex challenges, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\n${candidateName}`;
+            setGeneratedLetter(fallback);
+          }
         }
       }
     );
   };
 
+  const handleGenerateCoverLetter = () => {
+    triggerGenerateCoverLetter();
+  };
+
   const handleInsertCoverLetter = async () => {
-    if (!generatedLetter.trim()) return;
+    const textToInsert = (coverLetterMode === 'template' && templateLetter ? templateLetter : generatedLetter).trim();
+    if (!textToInsert) return;
     setInsertingLetter(true);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -534,7 +590,7 @@ export const Popup: React.FC = () => {
           {
             type: 'BG_INSERT_COVER_LETTER',
             source: 'popup',
-            payload: { text: generatedLetter },
+            payload: { text: textToInsert },
             timestamp: new Date().toISOString()
           },
           (res) => {
@@ -543,7 +599,7 @@ export const Popup: React.FC = () => {
               setStatusMessage('Cover letter inserted into webpage!');
               setShowCoverLetterModal(false);
             } else {
-              navigator.clipboard?.writeText(generatedLetter);
+              navigator.clipboard?.writeText(textToInsert);
               setStatusMessage('Copied cover letter to clipboard!');
             }
           }
@@ -551,7 +607,7 @@ export const Popup: React.FC = () => {
       }
     } catch {
       setInsertingLetter(false);
-      navigator.clipboard?.writeText(generatedLetter);
+      navigator.clipboard?.writeText(textToInsert);
       setStatusMessage('Copied cover letter to clipboard!');
     }
   };
@@ -828,7 +884,7 @@ export const Popup: React.FC = () => {
             <div className="flex items-center justify-between pb-2 border-b border-slate-200">
               <div className="flex items-center space-x-1.5">
                 <Sparkles className="w-4 h-4 text-indigo-600" />
-                <h3 className="text-xs font-bold text-slate-900">Tailored Cover Letter</h3>
+                <h3 className="text-xs font-bold text-slate-900">Cover Letter Assistant</h3>
               </div>
               <button
                 onClick={() => setShowCoverLetterModal(false)}
@@ -838,98 +894,189 @@ export const Popup: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Target Role</label>
-                <input
-                  type="text"
-                  value={coverRole}
-                  onChange={(e) => setCoverRole(e.target.value)}
-                  placeholder="e.g. AI Engineer"
-                  className="w-full p-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Company</label>
-                <input
-                  type="text"
-                  value={coverCompany}
-                  onChange={(e) => setCoverCompany(e.target.value)}
-                  placeholder="e.g. AZM ICT"
-                  className="w-full p-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-500 uppercase">Tone</label>
-              <div className="flex space-x-2 pt-1">
-                {(['professional', 'concise', 'confident'] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setCoverTone(t)}
-                    className={`flex-1 py-1 text-[11px] font-medium rounded-md border transition-colors ${
-                      coverTone === t
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {!generatedLetter && (
+            {/* Mode Switcher */}
+            <div className="flex p-0.5 bg-slate-100 rounded-lg">
               <button
                 type="button"
-                onClick={handleGenerateCoverLetter}
-                disabled={generatingLetter}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 shadow-xs"
+                onClick={() => setCoverLetterMode('ai')}
+                className={`flex-1 py-1 text-xs font-medium rounded-md transition-all flex items-center justify-center space-x-1.5 ${
+                  coverLetterMode === 'ai'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                {generatingLetter ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Synthesizing with Gemini...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Generate Tailored Letter</span>
-                  </>
-                )}
+                <Sparkles className="w-3 h-3 text-indigo-600" />
+                <span>AI Tailored (JD)</span>
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => setCoverLetterMode('template')}
+                className={`flex-1 py-1 text-xs font-medium rounded-md transition-all flex items-center justify-center space-x-1.5 ${
+                  coverLetterMode === 'template'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <FileText className="w-3 h-3 text-indigo-600" />
+                <span>Predefined Template</span>
+              </button>
+            </div>
 
-            {generatedLetter && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] uppercase font-bold text-emerald-600 flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Grounding Passed</span>
-                  </span>
+            {/* Auto-detected Job Context */}
+            <div className="p-2 bg-indigo-50/60 border border-indigo-100 rounded-lg text-xs space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-indigo-900 uppercase tracking-wide">Auto-Detected Context</span>
+                <span className="text-[10px] text-indigo-700 font-medium">No manual entry needed</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
+                <div>
+                  <label className="text-[10px] text-slate-500 font-medium">Role / Post</label>
+                  <input
+                    type="text"
+                    value={coverRole}
+                    onChange={(e) => setCoverRole(e.target.value)}
+                    className="w-full mt-0.5 p-1 text-xs bg-white border border-indigo-200 rounded font-medium text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 font-medium">Company</label>
+                  <input
+                    type="text"
+                    value={coverCompany}
+                    onChange={(e) => setCoverCompany(e.target.value)}
+                    className="w-full mt-0.5 p-1 text-xs bg-white border border-indigo-200 rounded font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {coverLetterMode === 'ai' && (
+              <div className="space-y-2">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Tone</label>
+                    {generatedLetter && (
+                      <button
+                        type="button"
+                        onClick={handleGenerateCoverLetter}
+                        disabled={generatingLetter}
+                        className="text-[11px] text-indigo-600 hover:underline flex items-center space-x-1"
+                      >
+                        <RefreshCw className={`w-2.5 h-2.5 ${generatingLetter ? 'animate-spin' : ''}`} />
+                        <span>Regenerate with JD</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex space-x-2 pt-1">
+                    {(['professional', 'concise', 'confident'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setCoverTone(t)}
+                        className={`flex-1 py-1 text-[11px] font-medium rounded-md border transition-colors ${
+                          coverTone === t
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {generatingLetter ? (
+                  <div className="p-6 text-center space-y-2 border border-dashed border-indigo-200 rounded-lg">
+                    <RefreshCw className="w-5 h-5 animate-spin text-indigo-600 mx-auto" />
+                    <p className="text-xs text-indigo-900 font-medium">Analyzing JD & synthesizing cover letter...</p>
+                    <p className="text-[10px] text-slate-500">Matching your verified skills to the company's requirements</p>
+                  </div>
+                ) : generatedLetter ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-bold text-emerald-600 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Grounding Verified (Zero Fabrications)</span>
+                      </span>
+                    </div>
+                    <textarea
+                      rows={7}
+                      value={generatedLetter}
+                      onChange={(e) => setGeneratedLetter(e.target.value)}
+                      className="w-full p-2 text-xs border border-slate-300 rounded-md font-sans leading-relaxed text-slate-800"
+                    />
+                  </div>
+                ) : (
                   <button
                     type="button"
                     onClick={handleGenerateCoverLetter}
                     disabled={generatingLetter}
-                    className="text-[11px] text-indigo-600 hover:underline flex items-center space-x-1"
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 shadow-xs"
                   >
-                    <RefreshCw className="w-2.5 h-2.5" />
-                    <span>Regenerate</span>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Generate Tailored Letter</span>
                   </button>
-                </div>
-                <textarea
-                  rows={8}
-                  value={generatedLetter}
-                  onChange={(e) => setGeneratedLetter(e.target.value)}
-                  className="w-full p-2 text-xs border border-slate-300 rounded-md font-sans leading-relaxed text-slate-800"
-                />
+                )}
+              </div>
+            )}
+
+            {coverLetterMode === 'template' && (
+              <div className="space-y-2">
+                {templateLetter ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-indigo-700 font-medium flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>Auto-interpolated with live company & role</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (profile?.coverLetter) {
+                            const candidateName = profile.identity?.fullName || `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim() || 'Candidate';
+                            const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || '';
+                            setTemplateLetter(interpolateCoverLetter(profile.coverLetter, {
+                              company: coverCompany,
+                              role: coverRole,
+                              candidateName,
+                              skills: topSkills
+                            }));
+                          }
+                        }}
+                        className="text-[11px] text-indigo-600 hover:underline flex items-center space-x-1"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>Re-interpolate</span>
+                      </button>
+                    </div>
+                    <textarea
+                      rows={7}
+                      value={templateLetter}
+                      onChange={(e) => setTemplateLetter(e.target.value)}
+                      className="w-full p-2 text-xs border border-slate-300 rounded-md font-sans leading-relaxed text-slate-800"
+                    />
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center space-y-2">
+                    <FileText className="w-6 h-6 text-slate-400 mx-auto" />
+                    <p className="text-xs text-slate-700 font-medium">No Predefined Cover Letter Configured</p>
+                    <p className="text-[11px] text-slate-500">
+                      Save your template in Settings to have it automatically interpolated with company and role variables.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => chrome.runtime.openOptionsPage()}
+                      className="px-3 py-1 bg-white border border-slate-300 hover:bg-slate-100 rounded text-xs font-medium text-slate-700"
+                    >
+                      Open Settings
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {generatedLetter && (
+          {((coverLetterMode === 'ai' && generatedLetter) || (coverLetterMode === 'template' && templateLetter)) && (
             <div className="pt-2 space-y-1.5 border-t border-slate-200">
               <button
                 type="button"
@@ -940,7 +1087,7 @@ export const Popup: React.FC = () => {
                 {insertingLetter ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Inserting...</span>
+                    <span>Inserting into Webpage...</span>
                   </>
                 ) : (
                   <>
@@ -952,7 +1099,8 @@ export const Popup: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard?.writeText(generatedLetter);
+                  const text = coverLetterMode === 'template' ? templateLetter : generatedLetter;
+                  navigator.clipboard?.writeText(text);
                   setStatusMessage('Copied cover letter to clipboard!');
                 }}
                 className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center justify-center space-x-1"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveFieldValue } from '../src/content/resolver/field-resolver';
+import { resolveFieldValue, interpolateCoverLetter } from '../src/content/resolver/field-resolver';
 import { UserProfile } from '../src/types/profile';
 import { FieldDescriptor } from '../src/types/taxonomy';
 
@@ -22,6 +22,7 @@ describe('Centralized Field Resolver', () => {
     identity: { firstName: '', lastName: '', fullName: '', email: '', phone: '' },
     location: { addressLine: '', city: '', state: '', country: '', zipCode: '' },
     summary: '',
+    coverLetter: '',
     links: { linkedin: '', github: '', portfolio: '' },
     skills: [],
     experiences: [],
@@ -164,5 +165,50 @@ describe('Centralized Field Resolver', () => {
 
     const resEmpty = resolveFieldValue({ semanticType: 'years_experience', field: mockField, profile: emptyProfile });
     expect(resEmpty.status).toBe('NEEDS_USER');
+  });
+
+  it('interpolates predefined cover letter templates accurately with zero manual entry', () => {
+    const template = 'Dear {company},\n\nI am thrilled to apply for {role}. My skills include {skills}.\n\nSincerely,\n{candidateName}';
+    const context = {
+      company: 'Anthropic',
+      role: 'Staff Systems Engineer',
+      candidateName: 'Alice Smith',
+      skills: 'TypeScript, Go, Distributed Systems'
+    };
+    const letter = interpolateCoverLetter(template, context);
+    expect(letter).toBe(
+      'Dear Anthropic,\n\nI am thrilled to apply for Staff Systems Engineer. My skills include TypeScript, Go, Distributed Systems.\n\nSincerely,\nAlice Smith'
+    );
+  });
+
+  it('resolves cover_letter using predefined template and application context', () => {
+    const profileWithCoverLetter: UserProfile = {
+      ...filledProfile,
+      coverLetter: 'Dear Hiring Team at {company},\n\nI am excited about the {role} role.\n\nBest,\n{candidateName}'
+    };
+
+    const res = resolveFieldValue({
+      semanticType: 'cover_letter',
+      field: mockField,
+      profile: profileWithCoverLetter,
+      applicationContext: {
+        company: 'Vercel',
+        role: 'Frontend Architect'
+      }
+    });
+
+    expect(res.status).toBe('RESOLVED');
+    expect(res.value).toBe(
+      'Dear Hiring Team at Vercel,\n\nI am excited about the Frontend Architect role.\n\nBest,\nAlice Smith'
+    );
+  });
+
+  it('returns UNKNOWN for cover_letter when profile has no template, enabling dynamic AI generation', () => {
+    const res = resolveFieldValue({
+      semanticType: 'cover_letter',
+      field: mockField,
+      profile: emptyProfile
+    });
+    expect(res.status).toBe('UNKNOWN');
   });
 });

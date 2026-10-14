@@ -35,6 +35,7 @@ const DEFAULT_PROFILE: UserProfile = {
     zipCode: ''
   },
   summary: '',
+  coverLetter: '',
   links: {
     linkedin: '',
     github: '',
