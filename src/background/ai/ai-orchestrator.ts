@@ -22,7 +22,7 @@ export class AIOrchestrator {
         if (!this.geminiProvider) {
           this.geminiProvider = new GeminiAIAdapter({
             apiKey: settings.aiApiKey,
-            model: settings.aiModelName || 'gemini-3.8-flash',
+            model: settings.aiModelName || 'gemini-flash-lite-latest',
             maxOutputTokens: 4096,
             temperature: 0.1
           });

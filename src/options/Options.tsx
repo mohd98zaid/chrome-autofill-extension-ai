@@ -1605,7 +1605,7 @@ Berkeley, CA | Aug 2016 – May 2020`;
                       <input
                         type={showApiKey ? 'text' : 'password'}
                         value={settings.aiApiKey || ''}
-                        placeholder="sk-..."
+                        placeholder="AQ... or AIza... or sk-..."
                         onChange={(e) => setSettings({ ...settings, aiApiKey: e.target.value })}
                         className="w-full px-3 py-2 pr-10 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
                       />
@@ -1623,7 +1623,7 @@ Berkeley, CA | Aug 2016 – May 2020`;
                     <label className="block text-xs font-medium text-slate-700 mb-1">Model Name</label>
                     <input
                       type="text"
-                      placeholder="gpt-4o-mini or gemini-1.5-flash"
+                      placeholder="gemini-flash-lite-latest, gemini-flash-latest, or gpt-4o-mini"
                       value={settings.aiModelName || ''}
                       onChange={(e) => setSettings({ ...settings, aiModelName: e.target.value })}
                       className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"

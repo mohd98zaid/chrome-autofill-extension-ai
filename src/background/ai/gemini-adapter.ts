@@ -52,12 +52,12 @@ export class GeminiAIAdapter implements AIProvider {
   private async callGemini(systemInstruction: string, promptText: string): Promise<string> {
     const candidateModels = Array.from(
       new Set([
-        this.config.model || 'gemini-2.5-flash',
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
+        this.config.model || 'gemini-flash-lite-latest',
         'gemini-flash-lite-latest',
-        'gemini-1.5-pro'
+        'gemini-flash-latest',
+        'gemini-3.8-flash',
+        'gemini-pro-latest',
+        'gemini-2.5-flash-lite'
       ])
     );
 
