@@ -13,6 +13,29 @@ import { ApplicationSession } from '../types/session';
 import { UserProfile } from '../types/profile';
 import { interpolateCoverLetter } from '../content/resolver/field-resolver';
 
+const isGenericWord = (w: string) =>
+  /^(application|job application|online application|apply|careers|jobs|workday|greenhouse|lever|ashby|smartrecruiters|taleo|icims)$/i.test(w.trim());
+
+function resolveCleanCompany(jobDetails?: { company?: string }, domain?: string): string {
+  if (jobDetails?.company && !isGenericWord(jobDetails.company)) {
+    return jobDetails.company;
+  }
+  if (domain) {
+    const cleanDom = domain.replace(/^www\./, '').replace(/\..*$/, '');
+    if (!isGenericWord(cleanDom)) {
+      return cleanDom.replace(/\b\w/g, (c: string) => c.toUpperCase());
+    }
+  }
+  return 'Hiring Team';
+}
+
+function resolveCleanRole(jobDetails?: { title?: string }): string {
+  if (jobDetails?.title && !isGenericWord(jobDetails.title)) {
+    return jobDetails.title;
+  }
+  return 'Open Position';
+}
+
 export const ReviewPanel: React.FC = () => {
   const [session, setSession] = useState<ApplicationSession | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -43,8 +66,8 @@ export const ReviewPanel: React.FC = () => {
             setProfile(res.data);
             if (res.data.coverLetter && !coverLetter) {
               const candidateName = res.data.identity?.fullName || `${res.data.identity?.firstName || ''} ${res.data.identity?.lastName || ''}`.trim() || 'Candidate';
-              const company = session?.jobDetails?.company || (session?.domain ? session.domain.replace(/^www\./, '').replace(/\..*$/, '').replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Hiring Team');
-              const role = session?.jobDetails?.title || 'Open Position';
+              const company = resolveCleanCompany(session?.jobDetails, session?.domain);
+              const role = resolveCleanRole(session?.jobDetails);
               const skills = res.data.skills?.slice(0, 6).map((s: any) => s.canonicalName).join(', ') || '';
               setCoverLetter(interpolateCoverLetter(res.data.coverLetter, { company, role, candidateName, skills }));
             }
@@ -71,18 +94,31 @@ export const ReviewPanel: React.FC = () => {
   const handleGenerateCoverLetter = () => {
     setGeneratingLetter(true);
 
-    const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || 'Candidate';
-    const company = session?.jobDetails?.company || (session?.domain ? session.domain.replace(/^www\./, '').replace(/\..*$/, '').replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Hiring Team');
-    const role = session?.jobDetails?.title || 'Open Position';
+    const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || '';
+    const company = resolveCleanCompany(session?.jobDetails, session?.domain);
+    const role = resolveCleanRole(session?.jobDetails);
     const jdText = session?.jobDetails?.description || '';
-    const skillsList = profile?.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'relevant skills';
+    const skillsList = profile?.skills?.slice(0, 8).map((s) => s.canonicalName).join(', ') || '';
 
-    const evidence: string[] = profile ? [
-      `${candidateName}, based in ${profile.location?.city || ''} ${profile.location?.country || ''}`.trim(),
-      profile.summary,
-      ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
-      `Key skills: ${skillsList}`
-    ].filter(Boolean) : [];
+    const evidence: string[] = [];
+    if (candidateName) {
+      evidence.push(`Applicant Name: ${candidateName}`);
+    }
+    if (profile?.summary?.trim()) {
+      evidence.push(`Professional Summary: ${profile.summary.trim()}`);
+    }
+    if (skillsList) {
+      evidence.push(`Key skills: ${skillsList}`);
+    }
+    for (const exp of profile?.experiences || []) {
+      if (exp.title && exp.company) {
+        evidence.push(`${exp.title} at ${exp.company}${exp.description ? `: ${exp.description}` : ''}`);
+      }
+    }
+    const locStr = [profile?.location?.city, profile?.location?.country].filter(Boolean).join(', ');
+    if (locStr) {
+      evidence.push(`Location: ${locStr}`);
+    }
 
     chrome.runtime.sendMessage(
       {
@@ -104,7 +140,7 @@ export const ReviewPanel: React.FC = () => {
         if (res?.success && res.data?.coverLetter) {
           setCoverLetter(res.data.coverLetter);
         } else if (profile?.coverLetter) {
-          setCoverLetter(interpolateCoverLetter(profile.coverLetter, { company, role, candidateName, skills: skillsList }));
+          setCoverLetter(interpolateCoverLetter(profile.coverLetter, { company, role, candidateName: candidateName || 'Candidate', skills: skillsList || 'relevant skills' }));
         }
       }
     );

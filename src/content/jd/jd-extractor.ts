@@ -78,8 +78,12 @@ export class JDExtractor {
       '.description__text',
       '#job-details',
       '.job-details',
-      '[class*="jobDescription"]',
-      '[class*="job-details"]',
+      '[class*="jobDescription" i]',
+      '[class*="job-details" i]',
+      '[data-automation-id*="jobPostingDescription" i]',
+      '.posting-requirements',
+      '.posting-description',
+      '[class*="job-description" i]',
       'main article',
       'article'
     ];
@@ -240,27 +244,64 @@ export class JDExtractor {
       if (atMatch && atMatch[1] && this.isValidCompany(atMatch[1])) {
         return this.cleanCompanyName(atMatch[1]);
       }
-      const dashParts = root.title.split(/[-|–•]/);
-      if (dashParts.length >= 2) {
-        const candidate = dashParts[dashParts.length - 1].trim();
-        if (this.isValidCompany(candidate)) {
-          return this.cleanCompanyName(candidate);
+      const dashParts = root.title.split(/[-|–•]/).map((p) => p.trim()).filter(Boolean);
+      // Only extract company from title if there are multiple parts separated by dash/pipe
+      if (dashParts.length > 1) {
+        const detectedJobTitle = this.findJobTitle(root).toLowerCase();
+        // Find candidate from back to front that is valid company and not a job title
+        for (let i = dashParts.length - 1; i >= 0; i--) {
+          const candidate = dashParts[i];
+          const candLower = candidate.toLowerCase();
+          if (
+            this.isValidCompany(candidate) &&
+            !this.isValidJobTitle(candidate) &&
+            candLower !== detectedJobTitle
+          ) {
+            return this.cleanCompanyName(candidate);
+          }
         }
       }
     }
 
-    // 5. Hostname Subdomain Parsing on Hosted ATS Platforms (e.g. unio-digital.breezy.hr -> Unio Digital)
+    // 5. Hostname & ATS Path Parsing
     try {
       const hostname = window.location.hostname.toLowerCase();
+      const pathname = window.location.pathname;
+      const pathSegments = pathname.split('/').filter(Boolean);
+
+      // 5a. ATS path slug parsing (e.g. jobs.lever.co/anthropic/id, boards.greenhouse.io/openai/jobs/id, jobs.ashbyhq.com/perplexity/id)
+      if (
+        hostname.includes('lever.co') ||
+        hostname.includes('greenhouse.io') ||
+        hostname.includes('ashbyhq.com') ||
+        hostname.includes('smartrecruiters.com') ||
+        hostname.includes('dover.io')
+      ) {
+        for (const seg of pathSegments) {
+          if (this.isValidCompany(seg) && !/^(?:jobs|apply|postings|p)$/i.test(seg)) {
+            return this.cleanCompanyName(seg);
+          }
+        }
+      }
+
+      // 5b. Workday URLs: e.g. nvidia.wd5.myworkdayjobs.com or myworkdayjobs.com/en-US/nvidia/...
+      if (hostname.includes('myworkdayjobs.com')) {
+        const sub = hostname.split('.')[0];
+        if (sub && this.isValidCompany(sub) && !/^(?:jobs|careers|wd\d+|www)$/i.test(sub)) {
+          return this.cleanCompanyName(sub);
+        }
+        for (const seg of pathSegments) {
+          if (this.isValidCompany(seg) && !/^(?:en-us|en|job|jobs|details|apply)$/i.test(seg)) {
+            return this.cleanCompanyName(seg);
+          }
+        }
+      }
+
+      // 5c. Subdomain parsing on other ATS: company.breezy.hr, company.bamboohr.com, etc.
       const atsDomains = [
         'breezy.hr',
-        'greenhouse.io',
-        'lever.co',
-        'myworkdayjobs.com',
         'talentrecruit.com',
-        'smartrecruiters.com',
         'workable.com',
-        'ashbyhq.com',
         'recruitee.com',
         'bamboohr.com',
         'jobvite.com',
@@ -271,7 +312,7 @@ export class JDExtractor {
         if (hostname.includes(ats)) {
           const prefix = hostname.replace(`.${ats}`, '').replace(/^www\./, '');
           const sub = prefix.split('.')[0];
-          if (sub && sub !== 'boards' && sub !== 'jobs' && sub !== 'careers' && sub !== 'apply' && sub !== 'app') {
+          if (sub && this.isValidCompany(sub)) {
             return this.cleanCompanyName(sub.replace(/[-_]+/g, ' '));
           }
         }
@@ -307,11 +348,11 @@ export class JDExtractor {
     return '';
   }
 
-  private isValidJobTitle(raw: string): boolean {
+  public isValidJobTitle(raw: string): boolean {
     const s = raw.toLowerCase().trim();
     if (s.length < 3 || s.length > 100) return false;
     if (
-      /^(?:apply\s*now|job\s*application|application\s*form|careers|home|login|sign\s*in|submit\b|this\s*job|the\s*job|job\s*posting|job\s*details|job\s*description|open\s*positions?|join\s*us|work\s*with\s*us)/i.test(
+      /^(?:apply\s*now|apply\b.*|job\s*application.*|application\s*form.*|application.*|careers?|home|login|sign\s*in|submit\b.*|this\s*job|the\s*job|job\s*posting|job\s*details|job\s*description|open\s*positions?|join\s*us|work\s*with\s*us)$/i.test(
         s
       )
     ) {
@@ -320,7 +361,7 @@ export class JDExtractor {
     return true;
   }
 
-  private cleanJobTitle(raw: string): string {
+  public cleanJobTitle(raw: string): string {
     let t = raw.trim();
     // Remove ATS branding and suffixes
     t = t.replace(/\s*[-|–•]\s*(?:Breezy\s*HR|Workday|Greenhouse|Lever|SmartRecruiters|Taleo|TalentRecruit|Jobvite|Careers).*$/i, '');
@@ -337,10 +378,19 @@ export class JDExtractor {
     return t;
   }
 
-  private isValidCompany(raw: string): boolean {
+  public isValidCompany(raw: string): boolean {
     const s = raw.toLowerCase().trim();
     if (s.length < 2 || s.length > 60) return false;
-    if (/^breezy\s*hr$|^workday$|^greenhouse$|^lever$|^login$|^careers?$|^apply$|^home$/i.test(s)) return false;
+    if (
+      /^(?:breezy\s*hr|workday|greenhouse|lever|ashby|smartrecruiters|bamboohr|recruitee|icims|jobvite|taleo|dover|login|careers?|apply|apply\s*now|apply\s+for\b.*|home|application|job\s*application.*|online\s*application.*|application\s*form.*|dashboard|portal|jobs?|candidate|talent|hiring|company|unknown|n\/a|untitled)$/i.test(
+        s
+      )
+    ) {
+      return false;
+    }
+    if (/^(?:apply|submit|join|work\s+with|careers?\s+at)\b/i.test(s)) {
+      return false;
+    }
     return true;
   }
 

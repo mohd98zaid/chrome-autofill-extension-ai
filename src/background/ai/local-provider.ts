@@ -147,10 +147,44 @@ export class LocalAIProvider implements AIProvider {
   }
 
   public async generateCoverLetter(req: AICoverLetterRequest): Promise<AICoverLetterResponse> {
-    const candidateName = req.candidateName || 'Applicant';
-    const company = req.company || 'Hiring Team';
-    const role = req.role || 'Open Position';
-    const evidenceList = (req.profileEvidence || []).slice(0, 5).join(', ') || 'professional domain expertise';
+    const candidateName =
+      req.candidateName && req.candidateName !== 'Candidate' && req.candidateName !== 'Applicant'
+        ? req.candidateName
+        : 'Applicant';
+    const company =
+      req.company && !/^(?:application|job\s*application|apply|careers?|workday|lever|greenhouse|ashby)$/i.test(req.company)
+        ? req.company
+        : 'Hiring Team';
+    const role =
+      req.role && !/^(?:application|apply|open\s*position|target\s*role|job\s*application)$/i.test(req.role)
+        ? req.role
+        : 'Open Position';
+
+    // Parse profile evidence components cleanly
+    const rawEvidence = (req.profileEvidence || []).filter((e) => {
+      const s = e.trim();
+      return s.length > 0 && !s.includes('Candidate, based in') && !s.startsWith('based in,');
+    });
+
+    let skillsSnippet = '';
+    let experienceSnippet = '';
+    let summarySnippet = '';
+
+    for (const item of rawEvidence) {
+      if (/^(?:key\s*skills|skills):\s*/i.test(item)) {
+        skillsSnippet = item.replace(/^(?:key\s*skills|skills):\s*/i, '').trim();
+      } else if (/^(?:professional\s*summary|summary):\s*/i.test(item)) {
+        summarySnippet = item.replace(/^(?:professional\s*summary|summary):\s*/i, '').trim();
+      } else if (/\bat\b/i.test(item) && !experienceSnippet) {
+        experienceSnippet = item.replace(/^work\s*experience:\s*/i, '').trim();
+      }
+    }
+
+    // Fallbacks if not explicitly tagged
+    if (!skillsSnippet) {
+      const skillItem = rawEvidence.find((e) => e.includes(',') && !e.includes(':'));
+      if (skillItem) skillsSnippet = skillItem;
+    }
 
     let letter = '';
     if (req.predefinedTemplate && req.predefinedTemplate.trim().length > 10) {
@@ -158,14 +192,34 @@ export class LocalAIProvider implements AIProvider {
         .replace(/\{(?:company|companyName|organization)\}/gi, company)
         .replace(/\{(?:role|jobTitle|title|position|post)\}/gi, role)
         .replace(/\{(?:name|candidateName|fullName|applicantName)\}/gi, candidateName)
-        .replace(/\{(?:skills|keySkills|technologies)\}/gi, evidenceList);
+        .replace(/\{(?:skills|keySkills|technologies)\}/gi, skillsSnippet || 'domain and technical expertise');
 
-      if (!letter.includes(candidateName)) {
+      if (!letter.includes(candidateName) && candidateName !== 'Applicant') {
         letter = `${letter.trim()}\n\nSincerely,\n${candidateName}`;
       }
     } else {
-      const jdContext = req.jdText || req.jobDescription ? ` In reviewing your job description, I was especially excited by the technical challenges and mission of your team.` : '';
-      letter = `Dear Hiring Team at ${company},\n\nI am writing to express my strong interest in the ${role} role.${jdContext} With hands-on experience and verified expertise in ${evidenceList}, I am confident in my ability to contribute effectively from day one.\n\nThroughout my career, I have prioritized high engineering standards, collaborative problem solving, and delivering tangible business value. I welcome the opportunity to discuss how my qualifications align with your goals.\n\nSincerely,\n${candidateName}`;
+      const jdOpening = req.jdText || req.jobDescription
+        ? ` Having closely reviewed your job description, I am very excited about the opportunity to contribute to your team's mission and engineering challenges.`
+        : '';
+
+      const p1 = `Dear Hiring Team at ${company},\n\nI am writing to express my strong interest in the ${role} position.${jdOpening}`;
+
+      let p2 = '';
+      if (experienceSnippet && skillsSnippet) {
+        p2 = `With proven experience (${experienceSnippet}), I have developed strong competencies in ${skillsSnippet}. I take pride in building scalable, reliable solutions and translating complex requirements into well-engineered systems.`;
+      } else if (experienceSnippet) {
+        p2 = `With proven background (${experienceSnippet}), I bring a dedicated focus to engineering excellence, thoughtful architecture, and delivering tangible results.`;
+      } else if (skillsSnippet) {
+        p2 = `My technical background includes hands-on experience in ${skillsSnippet}. I focus on building high-quality, maintainable solutions and rapidly adapting to new technologies and workflows.`;
+      } else if (summarySnippet) {
+        p2 = `${summarySnippet} Throughout my career, I have maintained high technical standards, collaborative problem solving, and a commitment to continuous improvement.`;
+      } else {
+        p2 = `Throughout my career, I have maintained high engineering standards, proactive communication, and a dedication to delivering impactful solutions in fast-paced technical environments.`;
+      }
+
+      const p3 = `I welcome the opportunity to discuss how my qualifications and background can support the goals of ${company}. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
+
+      letter = `${p1}\n\n${p2}\n\n${p3}`;
     }
 
     return {

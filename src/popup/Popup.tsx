@@ -60,13 +60,19 @@ export const Popup: React.FC = () => {
       // 1. Immediate restore from chrome.storage.local
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
         chrome.storage.local.get(['user_profile', 'cv_profiles', 'active_profile_id'], (res) => {
-          const userProfile = res.user_profile as UserProfile | undefined;
-          if (userProfile) {
-            setProfile(userProfile);
-            if (userProfile.id) setSelectedProfileId(userProfile.id);
+          const list = (Array.isArray(res.cv_profiles) && res.cv_profiles.length > 0)
+            ? (res.cv_profiles as UserProfile[])
+            : [];
+          if (list.length > 0) {
+            setProfiles(list);
           }
-          if (Array.isArray(res.cv_profiles) && res.cv_profiles.length > 0) {
-            setProfiles(res.cv_profiles as UserProfile[]);
+          const activeId = res.active_profile_id;
+          const matched = activeId ? list.find((p) => p.id === activeId) : null;
+          const populated = list.find((p) => p.identity?.fullName || p.identity?.firstName || (p.skills && p.skills.length > 0));
+          const effective = matched || (res.user_profile as UserProfile) || populated || list[0] || null;
+          if (effective) {
+            setProfile(effective);
+            if (effective.id) setSelectedProfileId(effective.id);
           }
         });
       }
@@ -426,9 +432,14 @@ export const Popup: React.FC = () => {
   };
 
   const handleOpenCoverLetterModal = async () => {
+    const genericTerms = /^(?:application|job\s*application|online\s*application|application\s*form|apply|apply\s*now|careers?|workday|lever|greenhouse|ashby|smartrecruiters|hiring\s*team|unknown|n\/a)$/i;
+
     let detectedRole = session?.jobDetails?.title || '';
     let detectedCompany = session?.jobDetails?.company || '';
     let tabTitle = '';
+
+    if (detectedRole && genericTerms.test(detectedRole)) detectedRole = '';
+    if (detectedCompany && genericTerms.test(detectedCompany)) detectedCompany = '';
 
     // If not already in session, actively request extraction from the active tab or background
     try {
@@ -448,8 +459,8 @@ export const Popup: React.FC = () => {
           });
 
           if (jdRes) {
-            if (jdRes.title && !detectedRole) detectedRole = jdRes.title;
-            if (jdRes.company && !detectedCompany) detectedCompany = jdRes.company;
+            if (jdRes.title && !detectedRole && !genericTerms.test(jdRes.title)) detectedRole = jdRes.title;
+            if (jdRes.company && !detectedCompany && !genericTerms.test(jdRes.company)) detectedCompany = jdRes.company;
             if (jdRes.title || jdRes.company) {
               setSession((prev) => (prev ? { ...prev, jobDetails: jdRes } : prev));
             }
@@ -460,48 +471,59 @@ export const Popup: React.FC = () => {
       console.warn('Job details detection error:', err);
     }
 
-    // Parse role/company from tab title if not yet resolved (e.g. "Software Engineer - Google")
-    if (!detectedRole && tabTitle) {
-      const parts = tabTitle.split(/[-|–—·•]/).map((s) => s.trim()).filter(Boolean);
+    // Parse role/company from tab title if not yet resolved, filtering out generic keywords
+    if ((!detectedRole || !detectedCompany) && tabTitle) {
+      const parts = tabTitle
+        .split(/[-|–—·•@]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 2 && !genericTerms.test(s));
+
       if (parts.length >= 2) {
-        detectedRole = parts[0];
+        if (!detectedRole) detectedRole = parts[0];
         if (!detectedCompany) detectedCompany = parts[1];
-      } else if (parts.length === 1 && !parts[0].toLowerCase().includes('application')) {
-        detectedRole = parts[0];
+      } else if (parts.length === 1) {
+        if (!detectedRole) detectedRole = parts[0];
+        else if (!detectedCompany) detectedCompany = parts[0];
       }
     }
 
-    if (!detectedRole) {
+    if (!detectedRole || genericTerms.test(detectedRole)) {
       detectedRole = 'Open Position';
     }
-    if (!detectedCompany) {
+    if (!detectedCompany || genericTerms.test(detectedCompany)) {
       if (session?.domain) {
         const cleanDomain = session.domain
           .replace(/^www\./, '')
           .replace(/\.(com|org|net|hr|io|co|in|ai).*$/, '')
           .replace(/[-_]+/g, ' ');
-        detectedCompany = cleanDomain.replace(/\b\w/g, (c) => c.toUpperCase());
-      } else {
-        detectedCompany = 'Hiring Team';
+        if (!/^(?:lever|greenhouse|workday|ashbyhq|smartrecruiters|breezy|myworkdayjobs)$/i.test(cleanDomain)) {
+          detectedCompany = cleanDomain.replace(/\b\w/g, (c) => c.toUpperCase());
+        }
       }
+    }
+    if (!detectedCompany || genericTerms.test(detectedCompany)) {
+      detectedCompany = 'Hiring Team';
     }
 
     setCoverRole(detectedRole);
     setCoverCompany(detectedCompany);
 
-    const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || 'Candidate';
-    const topSkills = profile?.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'technical and professional skills';
+    const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || '';
+    const topSkills = profile?.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || '';
 
     if (profile?.coverLetter) {
       const interpolated = interpolateCoverLetter(profile.coverLetter, {
         company: detectedCompany,
         role: detectedRole,
-        candidateName,
-        skills: topSkills
+        candidateName: candidateName || 'Applicant',
+        skills: topSkills || 'technical expertise'
       });
       setTemplateLetter(interpolated);
+      // If user has a predefined template, default to template mode
+      setCoverLetterMode('template');
     } else {
       setTemplateLetter('');
+      setCoverLetterMode('ai');
     }
 
     setShowCoverLetterModal(true);
@@ -519,15 +541,28 @@ export const Popup: React.FC = () => {
 
     setGeneratingLetter(true);
 
-    const candidateName = profile.identity?.fullName || `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim() || 'Candidate';
-    const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'technical and professional skills';
+    const candidateName = profile.identity?.fullName || `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim() || '';
+    const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'professional problem solving';
 
-    const evidence: string[] = [
-      `${candidateName}, based in ${profile.location?.city || ''} ${profile.location?.country || ''}`.trim(),
-      profile.summary,
-      ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
-      `Key skills: ${topSkills}`
-    ].filter(Boolean);
+    const evidence: string[] = [];
+    if (candidateName) {
+      evidence.push(`Applicant Name: ${candidateName}`);
+    }
+    if (profile.summary?.trim()) {
+      evidence.push(`Professional Summary: ${profile.summary.trim()}`);
+    }
+    if (profile.skills && profile.skills.length > 0) {
+      evidence.push(`Key Skills: ${profile.skills.slice(0, 8).map((s) => s.canonicalName).join(', ')}`);
+    }
+    for (const exp of profile.experiences || []) {
+      if (exp.title && exp.company) {
+        evidence.push(`${exp.title} at ${exp.company}${exp.description ? `: ${exp.description}` : ''}`);
+      }
+    }
+    const locStr = [profile.location?.city, profile.location?.country].filter(Boolean).join(', ');
+    if (locStr) {
+      evidence.push(`Location: ${locStr}`);
+    }
 
     const jobDescription = session?.jobDetails?.description || '';
 

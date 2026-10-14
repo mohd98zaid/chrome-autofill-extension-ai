@@ -67,4 +67,28 @@ describe('LocalAIProvider', () => {
     expect(res.coverLetter).not.toContain('[Candidate Name]');
     expect(res.coverLetter).not.toContain('[Company Name]');
   });
+
+  it('generates natural prose without broken fragments when profile evidence contains structured labels', async () => {
+    const res = await provider.generateCoverLetter({
+      company: 'OpenAI',
+      role: 'Research Engineer',
+      candidateName: 'Alice Walker',
+      jdText: 'Researching multi-modal agents and RLHF.',
+      profileEvidence: [
+        'Applicant Name: Alice Walker',
+        'Professional Summary: Machine learning researcher specializing in reinforcement learning.',
+        'Key skills: Python, PyTorch, Transformers, RLHF',
+        'Senior ML Engineer at DeepLabs: Led training of foundation models',
+        'Location: San Francisco, United States'
+      ]
+    });
+
+    expect(res.coverLetter).toContain('OpenAI');
+    expect(res.coverLetter).toContain('Research Engineer');
+    expect(res.coverLetter).toContain('Alice Walker');
+    expect(res.coverLetter).toContain('Python, PyTorch, Transformers, RLHF');
+    expect(res.coverLetter).not.toContain('Candidate, based in');
+    expect(res.coverLetter).not.toContain('verified expertise in Candidate');
+    expect(res.coverLetter).not.toContain('technical and professional skills');
+  });
 });

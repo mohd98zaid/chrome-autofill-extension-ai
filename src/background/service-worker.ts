@@ -331,8 +331,80 @@ class BackgroundService {
         return session.jobDetails || null;
       }
 
-      case 'UI_GENERATE_COVER_LETTER':
-        return aiOrchestrator.generateCoverLetter(message.payload);
+      case 'UI_GENERATE_COVER_LETTER': {
+        const payload = (message.payload || {}) as any;
+        const currentProfile = await storage.getProfile(payload?.profileId);
+
+        // Ensure real candidate name (never default to 'Candidate' or 'Applicant' if profile has one)
+        let candidateName = payload.candidateName?.trim();
+        if (!candidateName || candidateName === 'Candidate' || candidateName === 'Applicant') {
+          candidateName =
+            currentProfile.identity.fullName?.trim() ||
+            `${currentProfile.identity.firstName || ''} ${currentProfile.identity.lastName || ''}`.trim() ||
+            'Applicant';
+        }
+
+        // Ensure predefinedTemplate is passed if user configured one
+        const predefinedTemplate = payload.predefinedTemplate || currentProfile.coverLetter || '';
+
+        // Clean company name - never allow generic ATS words like 'Application'!
+        let company = payload.company?.trim() || '';
+        const genericCompanyPattern = /^(?:application|job\s*application|apply|apply\s*now|careers?|workday|lever|greenhouse|ashby|hiring\s*team|unknown|n\/a)$/i;
+        if (!company || genericCompanyPattern.test(company)) {
+          const session = tabId ? await this.getSession(tabId) : null;
+          if (session?.jobDetails?.company && !genericCompanyPattern.test(session.jobDetails.company)) {
+            company = session.jobDetails.company;
+          } else if (session?.domain) {
+            const clean = session.domain
+              .replace(/^www\./, '')
+              .replace(/\.(com|org|net|hr|io|co|in|ai).*$/, '')
+              .replace(/[-_]+/g, ' ');
+            if (!/^(?:lever|greenhouse|workday|ashbyhq|smartrecruiters|breezy|myworkdayjobs)$/i.test(clean)) {
+              company = clean.replace(/\b\w/g, (c) => c.toUpperCase());
+            }
+          }
+        }
+        if (!company) company = 'Hiring Team';
+
+        // Clean role
+        let role = payload.role?.trim() || '';
+        const genericRolePattern = /^(?:application|job\s*application|apply|target\s*role|open\s*position)$/i;
+        if (!role || genericRolePattern.test(role)) {
+          const session = tabId ? await this.getSession(tabId) : null;
+          if (session?.jobDetails?.title && !genericRolePattern.test(session.jobDetails.title)) {
+            role = session.jobDetails.title;
+          }
+        }
+        if (!role) role = 'Open Position';
+
+        // Build clean, high-quality profile evidence
+        const evidence: string[] = [];
+        if (currentProfile.summary?.trim()) {
+          evidence.push(`Professional Summary: ${currentProfile.summary.trim()}`);
+        }
+        if (currentProfile.skills?.length > 0) {
+          evidence.push(`Key Skills: ${currentProfile.skills.map((s) => s.canonicalName).join(', ')}`);
+        }
+        for (const exp of currentProfile.experiences || []) {
+          if (exp.title && exp.company) {
+            evidence.push(`${exp.title} at ${exp.company}${exp.description ? `: ${exp.description}` : ''}`);
+          }
+        }
+        if (currentProfile.location?.city || currentProfile.location?.country) {
+          evidence.push(`Location: ${[currentProfile.location.city, currentProfile.location.country].filter(Boolean).join(', ')}`);
+        }
+
+        const enrichedPayload = {
+          ...payload,
+          candidateName,
+          company,
+          role,
+          predefinedTemplate,
+          profileEvidence: evidence.length > 0 ? evidence : (payload.profileEvidence || [])
+        };
+
+        return aiOrchestrator.generateCoverLetter(enrichedPayload);
+      }
 
       case 'UI_GENERATE_ANSWER':
         return aiOrchestrator.generateAnswer(message.payload);

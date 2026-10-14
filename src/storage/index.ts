@@ -320,6 +320,19 @@ export class StorageService {
             parsed.education = deduplicateEducation(parsed.education || []);
             return parsed;
           }
+          // If targetId not explicitly specified and default is empty, prefer first populated profile
+          if (!profileId) {
+            const populated = res.cv_profiles.find(
+              (p: any) => p.identity?.fullName || p.identity?.firstName || (Array.isArray(p.skills) && p.skills.length > 0)
+            );
+            if (populated) {
+              const parsed = ProfileSchema.parse(populated);
+              parsed.skills = deduplicateSkills(parsed.skills || []);
+              parsed.experiences = deduplicateExperiences(parsed.experiences || []);
+              parsed.education = deduplicateEducation(parsed.education || []);
+              return parsed;
+            }
+          }
         }
         if (res.user_profile && (!profileId || (res.user_profile as any).id === targetId)) {
           const parsed = ProfileSchema.parse(res.user_profile);

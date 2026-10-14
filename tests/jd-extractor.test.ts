@@ -106,4 +106,45 @@ describe('JDExtractor', () => {
     expect(job?.title).toBe('Senior Cloud Architect');
     expect(job?.company).toBe('Acme Corp');
   });
+
+  it('never mistakes "Application" or generic words for company name on titles like "AI Engineer - Application"', () => {
+    delete (window as any).location;
+    window.location = new URL('https://boards.greenhouse.io/anthropic/jobs/5678') as any;
+
+    document.head.innerHTML = `<title>AI Engineer - Application</title>`;
+    document.body.innerHTML = `<h1>AI Engineer</h1>`;
+
+    const job = extractor.extract(document);
+    expect(job).not.toBeNull();
+    expect(job?.title).toBe('AI Engineer');
+    // Must NOT be "Application", must be parsed from Greenhouse URL slug "anthropic" -> "Anthropic"
+    expect(job?.company).toBe('Anthropic');
+    expect(job?.company).not.toBe('Application');
+  });
+
+  it('extracts company accurately from Lever/Ashby ATS URL path slugs', () => {
+    delete (window as any).location;
+    window.location = new URL('https://jobs.lever.co/perplexity/abc-123') as any;
+
+    document.head.innerHTML = `<title>Founding Engineer</title>`;
+    document.body.innerHTML = `<h1>Founding Engineer</h1>`;
+
+    const job = extractor.extract(document);
+    expect(job).not.toBeNull();
+    expect(job?.title).toBe('Founding Engineer');
+    expect(job?.company).toBe('Perplexity');
+  });
+
+  it('extracts company accurately from Workday subdomains', () => {
+    delete (window as any).location;
+    window.location = new URL('https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Senior-AI-Researcher') as any;
+
+    document.head.innerHTML = `<title>Job Application</title>`;
+    document.body.innerHTML = `<h1>Senior AI Researcher</h1>`;
+
+    const job = extractor.extract(document);
+    expect(job).not.toBeNull();
+    expect(job?.title).toBe('Senior AI Researcher');
+    expect(job?.company).toBe('Nvidia');
+  });
 });

@@ -960,14 +960,27 @@ class ContentScriptController {
     const candidateName =
       profile.identity.fullName ||
       `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
-      'Candidate';
+      '';
 
-    const evidence: string[] = [
-      `${candidateName}, based in ${profile.location.city || ''} ${profile.location.country || ''}`.trim(),
-      profile.summary,
-      ...profile.experiences.map((e) => `${e.title} at ${e.company}: ${e.description}`),
-      `Key skills: ${profile.skills.map((s) => s.canonicalName).join(', ')}`
-    ].filter(Boolean);
+    const evidence: string[] = [];
+    if (candidateName) {
+      evidence.push(`Applicant Name: ${candidateName}`);
+    }
+    if (profile.summary?.trim()) {
+      evidence.push(`Professional Summary: ${profile.summary.trim()}`);
+    }
+    if (profile.skills && profile.skills.length > 0) {
+      evidence.push(`Key skills: ${profile.skills.slice(0, 8).map((s) => s.canonicalName).join(', ')}`);
+    }
+    for (const exp of profile.experiences || []) {
+      if (exp.title && exp.company) {
+        evidence.push(`${exp.title} at ${exp.company}${exp.description ? `: ${exp.description}` : ''}`);
+      }
+    }
+    const locStr = [profile.location?.city, profile.location?.country].filter(Boolean).join(', ');
+    if (locStr) {
+      evidence.push(`Location: ${locStr}`);
+    }
 
     try {
       const response = await new Promise<{ coverLetter?: string }>((resolve) => {

@@ -82,21 +82,32 @@ export class AIOrchestrator {
   }
 
   public async generateCoverLetter(req: Parameters<AIProvider['generateCoverLetter']>[0]) {
-    const provider = await this.getActiveProvider();
-    const result = await provider.generateCoverLetter(req);
+    try {
+      const provider = await this.getActiveProvider();
+      const result = await provider.generateCoverLetter(req);
 
-    // Grounding check
-    const grounding = await provider.validateGrounding({
-      textToAudit: result.coverLetter,
-      approvedEvidence: req.profileEvidence || []
-    });
+      // Grounding check
+      try {
+        const grounding = await provider.validateGrounding({
+          textToAudit: result.coverLetter,
+          approvedEvidence: req.profileEvidence || []
+        });
 
-    if (grounding.status === 'failed') {
-      result.groundingStatus = 'failed';
-      result.unsupportedClaims = grounding.unsupportedClaims;
+        if (grounding.status === 'failed') {
+          result.groundingStatus = 'failed';
+          result.unsupportedClaims = grounding.unsupportedClaims;
+        }
+      } catch (gErr) {
+        logger.warn('AIOrchestrator', 'Grounding validation warning', { error: String(gErr) });
+      }
+
+      return result;
+    } catch (err) {
+      logger.warn('AIOrchestrator', 'Primary provider failed for cover letter, falling back to local synthesis', {
+        error: String(err)
+      });
+      return this.localProvider.generateCoverLetter(req);
     }
-
-    return result;
   }
 
   public async extractJD(req: Parameters<AIProvider['extractJD']>[0]) {
