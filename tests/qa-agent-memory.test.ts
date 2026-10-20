@@ -102,4 +102,66 @@ describe('Real-Time AI Agent & Q&A Memory Bank', () => {
     expect(answer).toBeDefined();
     expect(answer).toContain('production-grade RAG and agentic orchestration');
   });
+  it('LocalAIProvider selects the most suitable option for dropdown questions based on profile', async () => {
+    const { LocalAIProvider } = await import('../src/background/ai/local-provider');
+    const provider = new LocalAIProvider();
+
+    const res = await provider.generateAnswer({
+      question: 'Which AI/ML testing activities have you performed hands-on? (Select all that apply) *',
+      options: [
+        'Select an option',
+        'Model evaluation and benchmarking',
+        'Data quality and integrity testing for ML pipelines',
+        'Manual bookkeeping'
+      ],
+      profileEvidence: [
+        'Skills: Python, PyTorch, Model Evaluation, Data Quality Testing, Automation',
+        'Experience: QA Engineer at AI Corp: Led data quality and model benchmarking for LLM pipelines'
+      ]
+    });
+
+    expect(res.groundingStatus).toBe('passed');
+    expect(res.answer).not.toBe('Select an option');
+    expect(res.answer).not.toBe('Manual bookkeeping');
+    expect(res.selectedOptions?.[0]).toMatch(/data quality|model evaluation/i);
+  });
+
+  it('LocalAIProvider picks positive experience choice for yes/no question when candidate has matching skills', async () => {
+    const { LocalAIProvider } = await import('../src/background/ai/local-provider');
+    const provider = new LocalAIProvider();
+
+    const res = await provider.generateAnswer({
+      question: 'Have you performed data quality and data integrity testing for ML/AI pipelines? *',
+      options: [
+        'Yes - Advanced hands-on experience',
+        'Yes - Basic experience',
+        'No - No experience'
+      ],
+      profileEvidence: [
+        'Skills: Data Quality, ML Pipelines, QA Testing',
+        'Experience: Software Development Engineer in Test: Built automated data integrity test suites for ML pipelines'
+      ]
+    });
+
+    expect(res.answer).toBe('Yes - Advanced hands-on experience');
+    expect(res.selectedOptions).toContain('Yes - Advanced hands-on experience');
+  });
+
+  it('LocalAIProvider synthesizes direct grounded experience statement for years of experience textareas', async () => {
+    const { LocalAIProvider } = await import('../src/background/ai/local-provider');
+    const provider = new LocalAIProvider();
+
+    const res = await provider.generateAnswer({
+      question: 'How many years of hands-on experience do you have in QA, AI/ML testing, software testing, or data quality? *',
+      profileEvidence: [
+        'Total Experience: 4 years',
+        'Role: Senior QA Engineer (4 years)',
+        'Skills: QA, AI/ML testing, software testing, data quality'
+      ]
+    });
+
+    expect(res.answer).toMatch(/\b4\b/);
+    expect(res.answer).toContain('hands-on experience in');
+    expect(res.answer).not.toContain('Based on my background in Total Experience: 4 years');
+  });
 });

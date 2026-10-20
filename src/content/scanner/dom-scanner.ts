@@ -241,6 +241,7 @@ export class DOMScanner {
     const labelText = this.findLabelText(element);
     const nearbyText = this.findNearbyText(element);
     const sectionHeading = this.findSectionHeading(element);
+    const questionPrompt = this.findQuestionPrompt(element, labelText);
     const options = this.extractOptions(element, controlType);
 
     const isRequired =
@@ -273,6 +274,7 @@ export class DOMScanner {
       labelText,
       nearbyText,
       sectionHeading,
+      questionPrompt,
       options,
       isVisible: true,
       isDisabled,
@@ -457,6 +459,54 @@ export class DOMScanner {
     return text.length > 0 && text.length < 250 ? text : undefined;
   }
 
+
+  private findQuestionPrompt(element: HTMLElement, currentLabel?: string): string | undefined {
+    // 1. Fieldset legend
+    const fieldset = element.closest('fieldset');
+    if (fieldset) {
+      const legend = fieldset.querySelector('legend');
+      if (legend?.textContent) {
+        const text = cleanText(legend.textContent);
+        if (text && text !== currentLabel) return text;
+      }
+    }
+
+    // 2. Radiogroup / Group container with aria-label or aria-labelledby
+    const group = element.closest('[role="radiogroup"], [role="group"]');
+    if (group) {
+      const ariaLabel = group.getAttribute('aria-label');
+      if (ariaLabel && cleanText(ariaLabel) !== currentLabel) return cleanText(ariaLabel);
+      const labelledBy = group.getAttribute('aria-labelledby');
+      if (labelledBy) {
+        const lbl = document.getElementById(labelledBy);
+        if (lbl?.textContent && cleanText(lbl.textContent) !== currentLabel) {
+          return cleanText(lbl.textContent);
+        }
+      }
+    }
+
+    // 3. Question card or field container (Workday, Greenhouse, Ashby, Lever, Google/Microsoft forms)
+    const questionCard = element.closest(
+      '[data-automation-id="questionItem"], [role="listitem"], .office-form-question, [class*="question" i], [class*="Question" i], [class*="form-item" i], [class*="form-group" i], [class*="form-row" i], [class*="form-field" i], [data-qa="block"], [data-qa*="question" i], .application-question, .job-question'
+    );
+    if (questionCard) {
+      const qTitle = questionCard.querySelector(
+        '[data-automation-id="questionTitle"], [class*="question-title" i], [class*="questionTitle" i], [class*="QuestionTitle" i], [class*="question-header" i], [role="heading"], legend, .field-label, [class*="title" i], [class*="label" i], p, h2, h3, h4, h5'
+      );
+      if (qTitle && qTitle !== element && qTitle.textContent) {
+        const text = cleanText(qTitle.textContent);
+        if (text && text.length > 5 && text !== currentLabel) return text;
+      }
+    }
+
+    // 4. If currentLabel is already a descriptive question
+    if (currentLabel && currentLabel.length >= 10 && /\b(how|what|why|which|do|does|have|has|are|is|please|describe|select)\b/i.test(currentLabel)) {
+      return currentLabel;
+    }
+
+    return currentLabel;
+  }
+
   private findSectionHeading(element: HTMLElement): string | undefined {
     // Check fieldset legend
     const fieldset = element.closest('fieldset');
@@ -479,13 +529,34 @@ export class DOMScanner {
   }
 
   private extractOptions(element: HTMLElement, controlType: ControlType): FieldOption[] | undefined {
-    if (controlType === 'select' && element.tagName === 'SELECT') {
-      const select = element as HTMLSelectElement;
+    // 1. Native or nested select
+    const select = element.tagName === 'SELECT' ? (element as HTMLSelectElement) : (element.querySelector('select') as HTMLSelectElement | null);
+    if (select && select.options && select.options.length > 0) {
       return Array.from(select.options).map((opt) => ({
         label: opt.text.trim(),
         value: opt.value,
         selected: opt.selected
       }));
+    }
+
+    // 2. Radio or Checkbox sibling options in group
+    if (controlType === 'radio' || controlType === 'checkbox') {
+      const name = element.getAttribute('name');
+      const container = element.closest('fieldset, [role="radiogroup"], [role="group"], [class*="question" i], .form-group, .form-row') || element.parentElement?.parentElement;
+      const selector = name
+        ? `input[type="${controlType}"][name="${name.replace(/"/g, '\\"')}"]`
+        : `input[type="${controlType}"]`;
+      const siblings = container ? Array.from(container.querySelectorAll<HTMLInputElement>(selector)) : [];
+      if (siblings.length > 1) {
+        return siblings.map((sib) => {
+          const sibLabel = this.findLabelText(sib) || sib.value || '';
+          return {
+            label: sibLabel,
+            value: sib.value || sibLabel,
+            selected: sib.checked
+          };
+        });
+      }
     }
 
     // For custom dropdowns/comboboxes, see if aria-controls or child list exists

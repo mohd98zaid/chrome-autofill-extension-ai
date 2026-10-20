@@ -138,13 +138,14 @@ Output JSON: { "matches": [{ "jobSkill": string, "profileSkill": string, "matchT
 Never fabricate employers, titles, years, certifications, projects, metrics, or technologies.
 If something is unsupported, acknowledge limitation instead of inventing.
 Respect max words limit.
-Output JSON: { "answer": string, "groundingStatus": "passed"|"failed", "unsupportedClaims": string[], "sourceRefs": string[] }`;
+If options are provided in req.options, choose the best matching option(s). Output JSON: { "answer": string, "selectedOptions"?: string[], "groundingStatus": "passed"|"failed", "unsupportedClaims": string[], "sourceRefs": string[] }`;
 
     const user = JSON.stringify(req);
     const raw = await this.callChatCompletion(system, user);
     const parsed = JSON.parse(raw);
     return {
       answer: parsed.answer || '',
+      selectedOptions: parsed.selectedOptions || [],
       groundingStatus: parsed.groundingStatus || 'passed',
       unsupportedClaims: parsed.unsupportedClaims || [],
       sourceRefs: parsed.sourceRefs || []

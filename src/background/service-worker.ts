@@ -115,6 +115,8 @@ class BackgroundService {
           company?: string;
           role?: string;
           maxWords?: number;
+          options?: string[];
+          isMultiSelect?: boolean;
         };
         const currentProfile = await storage.getProfile();
 
@@ -135,7 +137,9 @@ class BackgroundService {
           question: payload.question,
           profileEvidence,
           jdContext: payload.company ? `Company: ${payload.company}. Target Role: ${payload.role || 'Job Applicant'}` : undefined,
-          maxWords: payload.maxWords || 120
+          maxWords: payload.maxWords || 120,
+          options: payload.options,
+          isMultiSelect: payload.isMultiSelect
         });
 
         // Persist to profile's customQA Knowledge Bank
@@ -163,6 +167,7 @@ class BackgroundService {
 
         return {
           answer: aiRes.answer,
+          selectedOptions: aiRes.selectedOptions || (aiRes.answer ? [aiRes.answer] : []),
           qaId: newQA.id,
           saved: true
         };

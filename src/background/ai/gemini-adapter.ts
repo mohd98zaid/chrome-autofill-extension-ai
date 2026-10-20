@@ -194,10 +194,12 @@ Output JSON:
     const system = `Generate a concise application answer using ONLY the supplied profile/resume evidence and the job description.
 Never fabricate employers, titles, years, certifications, projects, metrics, or technologies.
 If something is unsupported, acknowledge limitation instead of inventing.
+If available options are provided in req.options, select the option (or options if isMultiSelect) that most accurately reflects the candidate's background. Output the selected option exactly in "answer" (and list in "selectedOptions").
 Respect max words limit.
 Output JSON:
 {
   "answer": string,
+  "selectedOptions"?: string[],
   "groundingStatus": "passed" | "failed",
   "unsupportedClaims": string[],
   "sourceRefs": string[]
@@ -208,6 +210,7 @@ Output JSON:
     const parsed = JSON.parse(raw);
     return {
       answer: parsed.answer || '',
+      selectedOptions: parsed.selectedOptions || (parsed.answer ? [parsed.answer] : []),
       groundingStatus: parsed.groundingStatus || 'passed',
       unsupportedClaims: parsed.unsupportedClaims || [],
       sourceRefs: parsed.sourceRefs || []

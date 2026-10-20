@@ -60,6 +60,8 @@ export interface AIAnswerRequest {
   tone?: string;
   profileEvidence: string[];
   jdContext?: string;
+  options?: string[];
+  isMultiSelect?: boolean;
 }
 
 export interface AIAnswerResponse {
@@ -67,6 +69,7 @@ export interface AIAnswerResponse {
   groundingStatus: 'passed' | 'failed' | 'needs_review';
   unsupportedClaims: string[];
   sourceRefs: string[];
+  selectedOptions?: string[];
 }
 
 export interface AICoverLetterRequest {

@@ -104,6 +104,7 @@ export interface FieldDescriptor {
   labelText?: string;
   nearbyText?: string;
   sectionHeading?: string;
+  questionPrompt?: string;
   options?: FieldOption[];
   isVisible: boolean;
   isDisabled: boolean;

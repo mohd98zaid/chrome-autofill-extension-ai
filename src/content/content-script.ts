@@ -267,13 +267,49 @@ class ContentScriptController {
         }
 
         // Confidence check against settings (forceAll only allows attempting ordinary low-confidence fields)
-        if (classification.confidence < settings.autoFillThreshold && !fillPayload?.forceAll) {
+        let targetValue: string | string[] | boolean | null =
+          resolveRes.status === 'RESOLVED' && resolveRes.value !== undefined ? resolveRes.value : null;
+
+        // Check if field is a question, custom field, or unmapped input
+        const isQuestionCandidate =
+          classification.semanticType === 'application_question' ||
+          classification.semanticType === 'custom' ||
+          classification.semanticType === 'unknown' ||
+          field.controlType === 'textarea' ||
+          Boolean(field.questionPrompt && field.questionPrompt.length >= 6) ||
+          Boolean(field.labelText && /\b(how|what|why|which|do|does|have|has|are|is|please|describe|select|years of hands-on)\b|\?/i.test(field.labelText));
+
+        // For specific domain experience questions in textareas (e.g. "How many years... in QA, AI/ML testing..."),
+        // give precedence to Q&A memory bank / AI domain answering over generic global year calculation
+        if (
+          field.controlType === 'textarea' &&
+          classification.semanticType === 'years_experience' &&
+          field.labelText &&
+          /\b(in|testing|with|for)\b/i.test(field.labelText)
+        ) {
+          targetValue = null;
+        }
+
+        if (isQuestionCandidate && (targetValue === null || targetValue === undefined || targetValue === '')) {
+          const qVal = await this.resolveQuestionField(
+            field,
+            element,
+            profile,
+            settings,
+            detectedCompany,
+            detectedRole
+          );
+          if (qVal !== null && qVal !== undefined && qVal !== '') {
+            targetValue = qVal;
+            classification.confidence = 0.95;
+            classification.source = 'ai';
+          }
+        }
+
+        if (classification.confidence < settings.autoFillThreshold && !fillPayload?.forceAll && targetValue === null) {
           logger.info('ContentScript', `Field confidence (${classification.confidence}) below auto-fill threshold (${settings.autoFillThreshold})`);
           continue;
         }
-
-        let targetValue: string | string[] | boolean | null =
-          resolveRes.status === 'RESOLVED' && resolveRes.value !== undefined ? resolveRes.value : null;
 
         // Dynamic AI or Predefined Cover Letter Synthesis (grounded in JD & Company)
         if (
@@ -326,32 +362,7 @@ class ContentScriptController {
           targetValue = letterContent;
         }
 
-        // Real-Time Intelligent Agent for unmapped boxes, custom prompts & application questions
-        if (targetValue === null || targetValue === undefined || targetValue === '') {
-          const promptText = (field.labelText || field.placeholder || field.nearbyText || '').trim();
-          if (promptText.length >= 5 && (field.controlType === 'textarea' || field.controlType === 'text')) {
-            // Step 1: Check Q&A Memory Bank for existing answer
-            const rememberedAnswer = this.findMatchingQA(promptText, profile.customQA || []);
-            if (rememberedAnswer) {
-              targetValue = rememberedAnswer;
-              logger.info('ContentScript', `Reusing saved answer from Q&A memory bank for: "${promptText.slice(0, 35)}..."`);
-            } else if (settings.aiEnabled) {
-              // Step 2: Real-time dynamic generation & persistent learning (Rule 20: Grounded in profile evidence)
-              targetValue = await this.generateAndSaveRealtimeAnswer(promptText, field);
-              if (targetValue) {
-                if (!profile.customQA) profile.customQA = [];
-                profile.customQA.push({
-                  id: `qa_${Date.now()}`,
-                  question: promptText,
-                  answer: targetValue,
-                  tags: ['realtime_ai'],
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString()
-                });
-              }
-            }
-          }
-        }
+
 
         if (targetValue === null || targetValue === undefined || targetValue === '') {
           if (field.isRequired) {
@@ -878,6 +889,119 @@ class ContentScriptController {
     return extracted;
   }
 
+
+  private async resolveQuestionField(
+    field: FieldDescriptor,
+    element: HTMLElement,
+    profile: UserProfile,
+    settings: Settings,
+    detectedCompany: string,
+    detectedRole: string
+  ): Promise<string | string[] | boolean | null> {
+    const promptText = (field.questionPrompt || field.labelText || field.nearbyText || field.placeholder || '').trim();
+    if (!promptText || promptText.length < 4) return null;
+
+    // Step A: Check Q&A Memory Bank for existing predefined or learned answer
+    const rememberedAnswer = this.findMatchingQA(promptText, profile.customQA || []);
+    if (rememberedAnswer) {
+      logger.info('ContentScript', `Reusing saved answer from Q&A memory bank for: "${promptText.slice(0, 35)}..."`);
+      if (field.controlType === 'textarea' || field.controlType === 'text') {
+        return rememberedAnswer;
+      }
+      if (field.controlType === 'select' || field.controlType === 'combobox' || field.controlType === 'searchable_select') {
+        // Find matching option in field.options if available
+        if (field.options && field.options.length > 0) {
+          const remLower = rememberedAnswer.toLowerCase().trim();
+          const matched = field.options.find((opt) => {
+            const oLower = opt.label.toLowerCase().trim();
+            return oLower === remLower || oLower.includes(remLower) || remLower.includes(oLower);
+          });
+          if (matched) return matched.value || matched.label;
+        }
+        return rememberedAnswer;
+      }
+      if (field.controlType === 'radio' || field.controlType === 'checkbox') {
+        const myLabel = (field.labelText || '').toLowerCase().trim();
+        const remLower = rememberedAnswer.toLowerCase().trim();
+        if (myLabel && (myLabel === remLower || remLower.includes(myLabel) || myLabel.includes(remLower))) {
+          return true;
+        }
+        if (/^yes\b/i.test(remLower) && /^yes\b/i.test(myLabel)) {
+          return true;
+        }
+        if (field.controlType === 'radio') {
+          return false;
+        }
+      }
+    }
+
+    // Step B: Real-Time AI Generation if enabled
+    if (settings.aiEnabled) {
+      if (field.controlType === 'textarea' || field.controlType === 'text') {
+        const aiRes = await this.generateAndSaveRealtimeAnswer(promptText, field, detectedCompany, detectedRole);
+        if (aiRes?.answer) {
+          this.recordNewQA(profile, promptText, aiRes.answer, detectedCompany);
+          return aiRes.answer;
+        }
+      }
+
+      if (field.controlType === 'select' || field.controlType === 'combobox' || field.controlType === 'searchable_select') {
+        const optionLabels = (field.options || [])
+          .map((o) => o.label)
+          .filter((l) => l && !/^(?:select|choose|please select|--)/i.test(l.trim()));
+        
+        if (optionLabels.length > 0) {
+          const isMulti = element instanceof HTMLSelectElement && element.multiple;
+          const aiRes = await this.generateAndSaveRealtimeAnswer(promptText, field, detectedCompany, detectedRole, optionLabels, isMulti);
+          if (aiRes?.answer) {
+            this.recordNewQA(profile, promptText, aiRes.answer, detectedCompany);
+            // Return option value matching the answer
+            const matched = (field.options || []).find((o) => o.label.toLowerCase() === aiRes.answer.toLowerCase());
+            return matched ? (matched.value || matched.label) : aiRes.answer;
+          }
+        }
+      }
+
+      if (field.controlType === 'radio' || field.controlType === 'checkbox') {
+        const optionLabels = (field.options || []).map((o) => o.label).filter(Boolean);
+        if (optionLabels.length > 0) {
+          const aiRes = await this.generateAndSaveRealtimeAnswer(
+            promptText,
+            field,
+            detectedCompany,
+            detectedRole,
+            optionLabels,
+            field.controlType === 'checkbox'
+          );
+          if (aiRes) {
+            this.recordNewQA(profile, promptText, aiRes.answer, detectedCompany);
+            const myLabel = (field.labelText || '').toLowerCase().trim();
+            const selected = (aiRes.selectedOptions || [aiRes.answer]).map((s) => s.toLowerCase().trim());
+            const isMatch = selected.some((s) => s === myLabel || s.includes(myLabel) || myLabel.includes(s));
+            return isMatch;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private recordNewQA(profile: UserProfile, question: string, answer: string, company?: string) {
+    if (!profile.customQA) profile.customQA = [];
+    const exists = profile.customQA.some((q) => q.question.toLowerCase() === question.toLowerCase());
+    if (!exists) {
+      profile.customQA.push({
+        id: `qa_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        question,
+        answer,
+        tags: company ? [company.trim()] : ['realtime_ai'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }
+
   private findMatchingQA(questionText: string, customQA: CustomQA[]): string | null {
     if (!questionText || !customQA || customQA.length === 0) return null;
     const cleanQ = questionText.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
@@ -917,19 +1041,29 @@ class ContentScriptController {
     return null;
   }
 
-  private async generateAndSaveRealtimeAnswer(questionText: string, field: FieldDescriptor): Promise<string | null> {
+  private async generateAndSaveRealtimeAnswer(
+    questionText: string,
+    field: FieldDescriptor,
+    company?: string,
+    role?: string,
+    options?: string[],
+    isMultiSelect?: boolean
+  ): Promise<{ answer: string; selectedOptions?: string[] } | null> {
     try {
       const pageTitle = document.title || '';
       const domain = window.location.hostname || '';
 
-      const response = await new Promise<{ answer?: string; saved?: boolean }>((resolve) => {
+      const response = await new Promise<{ answer?: string; selectedOptions?: string[]; saved?: boolean }>((resolve) => {
         chrome.runtime.sendMessage(
           {
             type: 'CONTENT_GENERATE_AND_SAVE_ANSWER',
             source: 'content',
             payload: {
               question: questionText,
-              company: pageTitle || domain,
+              company: company || pageTitle || domain,
+              role: role || 'Job Applicant',
+              options,
+              isMultiSelect,
               maxWords: field.controlType === 'textarea' ? 120 : 35
             },
             timestamp: new Date().toISOString()
@@ -944,7 +1078,11 @@ class ContentScriptController {
         );
       });
 
-      return response?.answer || null;
+      if (!response?.answer) return null;
+      return {
+        answer: response.answer,
+        selectedOptions: response.selectedOptions || (response.answer ? [response.answer] : [])
+      };
     } catch (err) {
       logger.warn('ContentScript', 'Dynamic AI answering failed', { error: String(err) });
       return null;

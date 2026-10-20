@@ -150,4 +150,27 @@ describe('DOMScanner', () => {
     expect(result.elementMap?.get(result.fields[0].id)).toBe(inputs[0]);
     expect(result.elementMap?.get(result.fields[1].id)).toBe(inputs[1]);
   });
+  it('extracts questionPrompt and options for radio and checkbox question groups', () => {
+    document.body.innerHTML = `
+      <div class="question-container">
+        <h3 class="question-title">Have you performed data quality and data integrity testing for ML/AI pipelines? *</h3>
+        <label><input type="checkbox" name="data_quality" value="advanced" /> Yes - Advanced hands-on experience</label>
+        <label><input type="checkbox" name="data_quality" value="basic" /> Yes - Basic experience</label>
+      </div>
+    `;
+
+    const inputs = document.querySelectorAll('input');
+    inputs.forEach((el) => {
+      Object.defineProperty(el, 'getBoundingClientRect', {
+        value: () => ({ width: 20, height: 20, top: 0, left: 0, bottom: 20, right: 20 })
+      });
+    });
+
+    const result = scanner.scan();
+    expect(result.fields.length).toBe(2);
+    expect(result.fields[0].questionPrompt).toContain('Have you performed data quality');
+    expect(result.fields[0].options?.length).toBe(2);
+    expect(result.fields[0].options?.[0].label).toContain('Yes - Advanced hands-on experience');
+    expect(result.fields[1].questionPrompt).toContain('Have you performed data quality');
+  });
 });
