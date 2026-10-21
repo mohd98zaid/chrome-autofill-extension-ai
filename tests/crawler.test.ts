@@ -177,7 +177,8 @@ describe('Batch Queue Manager & Kill Switch', () => {
     expect(stoppedState.status).toBe('idle');
     expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
       100,
-      expect.objectContaining({ type: 'BG_ABORT_FILL' })
+      expect.objectContaining({ type: 'BG_ABORT_FILL' }),
+      expect.any(Function)
     );
   });
 

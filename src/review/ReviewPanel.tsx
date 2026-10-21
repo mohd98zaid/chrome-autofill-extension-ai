@@ -82,12 +82,18 @@ export const ReviewPanel: React.FC = () => {
   const handleHighlight = async (fieldId: string) => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'BG_HIGHLIGHT_FIELD',
-        source: 'review',
-        payload: { fieldId },
-        timestamp: new Date().toISOString()
-      });
+      chrome.tabs.sendMessage(
+        tab.id,
+        {
+          type: 'BG_HIGHLIGHT_FIELD',
+          source: 'review',
+          payload: { fieldId },
+          timestamp: new Date().toISOString()
+        },
+        () => {
+          void chrome.runtime?.lastError;
+        }
+      );
     }
   };
 

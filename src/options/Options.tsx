@@ -168,15 +168,19 @@ Berkeley, CA | Aug 2016 – May 2020`;
 
     // 2. Query service worker for latest synced data
     chrome.runtime.sendMessage({ type: 'UI_GET_PROFILE', source: 'options', timestamp: new Date().toISOString() }, (res) => {
+      if (chrome.runtime?.lastError) return;
       if (res?.success && res.data) setProfile(res.data);
     });
     chrome.runtime.sendMessage({ type: 'UI_GET_PROFILES', source: 'options', timestamp: new Date().toISOString() }, (res) => {
+      if (chrome.runtime?.lastError) return;
       if (res?.success && Array.isArray(res.data)) setProfiles(res.data);
     });
     chrome.runtime.sendMessage({ type: 'UI_GET_SETTINGS', source: 'options', timestamp: new Date().toISOString() }, (res) => {
+      if (chrome.runtime?.lastError) return;
       if (res?.success && res.data) setSettings(res.data);
     });
     chrome.runtime.sendMessage({ type: 'UI_GET_MAPPINGS', source: 'options', timestamp: new Date().toISOString() }, (res) => {
+      if (chrome.runtime?.lastError) return;
       if (res?.success && res.data) setMappings(res.data || []);
     });
   };

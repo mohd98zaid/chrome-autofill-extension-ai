@@ -359,11 +359,17 @@ export const Popup: React.FC = () => {
             loadData();
           }
         );
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'BG_ABORT_FILL',
-          source: 'popup',
-          timestamp: new Date().toISOString()
-        });
+        chrome.tabs.sendMessage(
+          tab.id,
+          {
+            type: 'BG_ABORT_FILL',
+            source: 'popup',
+            timestamp: new Date().toISOString()
+          },
+          () => {
+            void chrome.runtime?.lastError;
+          }
+        );
       }
     } catch {
       setFilling(false);

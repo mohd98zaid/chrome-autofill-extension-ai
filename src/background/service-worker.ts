@@ -78,11 +78,19 @@ class BackgroundService {
         (session as any).securityDismissed = true;
         await storage.saveSession(session);
         try {
-          chrome.tabs.sendMessage(tabId, {
-            type: 'BG_DISMISS_SECURITY',
-            source: 'background',
-            timestamp: new Date().toISOString()
-          });
+          if (tabId && typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
+            chrome.tabs.sendMessage(
+              tabId,
+              {
+                type: 'BG_DISMISS_SECURITY',
+                source: 'background',
+                timestamp: new Date().toISOString()
+              },
+              () => {
+                void chrome.runtime?.lastError;
+              }
+            );
+          }
         } catch {
           // ignore
         }
@@ -682,11 +690,19 @@ class BackgroundService {
 
   private async abortAutofill(tabId: number): Promise<{ success: boolean; aborted: boolean }> {
     try {
-      chrome.tabs.sendMessage(tabId, {
-        type: 'BG_ABORT_FILL',
-        source: 'background',
-        timestamp: new Date().toISOString()
-      });
+      if (tabId && typeof chrome !== 'undefined' && chrome.tabs?.sendMessage) {
+        chrome.tabs.sendMessage(
+          tabId,
+          {
+            type: 'BG_ABORT_FILL',
+            source: 'background',
+            timestamp: new Date().toISOString()
+          },
+          () => {
+            void chrome.runtime?.lastError;
+          }
+        );
+      }
     } catch {
       // ignore
     }

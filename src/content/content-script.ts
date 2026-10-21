@@ -392,7 +392,13 @@ class ContentScriptController {
       stepCount++;
       logger.info('ContentScript', `Processing application wizard step ${stepCount}...`);
 
-      const res = await this.executeFill(payload);
+      let res: { filledCount: number; records: FilledFieldRecord[] };
+      try {
+        res = await this.executeFill(payload);
+      } catch (fillErr) {
+        logger.warn('ContentScript', 'Step fill execution encountered error', { error: String(fillErr) });
+        res = { filledCount: 0, records: [] };
+      }
       totalFilled += res.filledCount;
       allRecords.push(...res.records);
 

@@ -213,12 +213,18 @@ export class BatchQueueManager {
         this.broadcastState();
 
         // Render overlay bar in worker tab
-        chrome.tabs.sendMessage(tabId, {
-          type: 'CRAWLER_STATE_UPDATED',
-          source: 'background',
-          payload: { session: this.session },
-          timestamp: new Date().toISOString()
-        });
+        chrome.tabs.sendMessage(
+          tabId,
+          {
+            type: 'CRAWLER_STATE_UPDATED',
+            source: 'background',
+            payload: { session: this.session },
+            timestamp: new Date().toISOString()
+          },
+          () => {
+            void chrome.runtime?.lastError;
+          }
+        );
       }
     );
   }
@@ -274,11 +280,17 @@ export class BatchQueueManager {
     const tabsToAbort = [searchTabId, workerTabId].filter((id): id is number => typeof id === 'number');
     for (const tid of tabsToAbort) {
       try {
-        chrome.tabs.sendMessage(tid, {
-          type: 'BG_ABORT_FILL',
-          source: 'background',
-          timestamp: new Date().toISOString()
-        });
+        chrome.tabs.sendMessage(
+          tid,
+          {
+            type: 'BG_ABORT_FILL',
+            source: 'background',
+            timestamp: new Date().toISOString()
+          },
+          () => {
+            void chrome.runtime?.lastError;
+          }
+        );
       } catch {
         // ignore
       }
@@ -316,12 +328,18 @@ export class BatchQueueManager {
 
     for (const tid of tabsToNotify) {
       try {
-        chrome.tabs.sendMessage(tid, {
-          type: 'CRAWLER_STATE_UPDATED',
-          source: 'background',
-          payload: { session: this.session },
-          timestamp: new Date().toISOString()
-        });
+        chrome.tabs.sendMessage(
+          tid,
+          {
+            type: 'CRAWLER_STATE_UPDATED',
+            source: 'background',
+            payload: { session: this.session },
+            timestamp: new Date().toISOString()
+          },
+          () => {
+            void chrome.runtime?.lastError;
+          }
+        );
       } catch {
         // ignore
       }

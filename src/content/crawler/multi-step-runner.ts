@@ -66,7 +66,13 @@ export class MultiStepWizardRunner {
 
     // Search in dialog, modal, form, or document body
     const container =
-      document.querySelector('.jobs-easy-apply-modal, [role="dialog"], form, .application-modal') || document.body;
+      document.querySelector('.jobs-easy-apply-modal, [role="dialog"], form, .application-modal') ||
+      document.body ||
+      document.documentElement;
+
+    if (!container) {
+      return { type: 'none' };
+    }
 
     const candidates = Array.from(
       container.querySelectorAll<HTMLElement>(
@@ -106,7 +112,7 @@ export class MultiStepWizardRunner {
     const SUCCESS_REGEX = /\b(application submitted|application sent|thank you for applying|your application was sent|applied)\b/i;
 
     const checkSuccess = () => {
-      const text = document.body.innerText || '';
+      const text = document.body?.innerText || document.documentElement?.innerText || '';
       if (SUCCESS_REGEX.test(text)) {
         logger.info('MultiStepWizardRunner', 'Application submission confirmation detected!');
         onSuccess();
