@@ -37,7 +37,14 @@ export type ExtensionMessageType =
   | 'UI_EXTRACT_JD'
   | 'UI_PARSE_RESUME'
   | 'UI_DISMISS_SECURITY'
-  | 'AI_CLASSIFY_FIELD_REQUEST';
+  | 'AI_CLASSIFY_FIELD_REQUEST'
+  | 'CRAWLER_START'
+  | 'CRAWLER_STOP'
+  | 'CRAWLER_GET_STATE'
+  | 'CRAWLER_NEXT_JOB'
+  | 'CRAWLER_SKIP_JOB'
+  | 'CONTENT_EXTRACT_JOBS'
+  | 'CRAWLER_STATE_UPDATED';
 
 export interface ExtensionMessage<T = unknown> {
   type: ExtensionMessageType;

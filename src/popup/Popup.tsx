@@ -13,10 +13,15 @@ import {
   Download,
   Copy,
   Save,
-  Trash2
+  Trash2,
+  Play,
+  Square,
+  SkipForward,
+  Compass
 } from 'lucide-react';
 import { ApplicationSession } from '../types/session';
 import { UserProfile, ProfileSchema } from '../types/profile';
+import { CrawlerSession } from '../types/crawler';
 import { interpolateCoverLetter } from '../content/resolver/field-resolver';
 
 export const Popup: React.FC = () => {
@@ -57,6 +62,13 @@ export const Popup: React.FC = () => {
   const popupJsonFileInputRef = useRef<HTMLInputElement | null>(null);
   const [showJsonPasteModal, setShowJsonPasteModal] = useState(false);
   const [jsonPasteText, setJsonPasteText] = useState('');
+
+  // Crawler & Batch Application states
+  const [crawlerState, setCrawlerState] = useState<CrawlerSession | null>(null);
+  const [crawlMaxJobs, setCrawlMaxJobs] = useState<number>(5);
+  const [crawlMode, setCrawlMode] = useState<'new_tab' | 'same_tab'>('new_tab');
+  const [startingCrawl, setStartingCrawl] = useState(false);
+  const [showCrawlerSection, setShowCrawlerSection] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -123,9 +135,93 @@ export const Popup: React.FC = () => {
           }
         }
       );
+
+      loadCrawlerState();
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const loadCrawlerState = () => {
+    chrome.runtime.sendMessage(
+      { type: 'CRAWLER_GET_STATE', source: 'popup', timestamp: new Date().toISOString() },
+      (res) => {
+        if (chrome.runtime?.lastError) return;
+        if (res?.success && res.data) {
+          setCrawlerState(res.data);
+          if (res.data.active) {
+            setShowCrawlerSection(true);
+          }
+        }
+      }
+    );
+  };
+
+  const handleStartCrawl = async () => {
+    setStartingCrawl(true);
+    setStatusMessage(null);
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        setStatusMessage('No active tab found.');
+        setStartingCrawl(false);
+        return;
+      }
+
+      chrome.runtime.sendMessage(
+        {
+          type: 'CRAWLER_START',
+          source: 'popup',
+          tabId: tab.id,
+          payload: { maxJobs: crawlMaxJobs, mode: crawlMode },
+          timestamp: new Date().toISOString()
+        },
+        (res) => {
+          setStartingCrawl(false);
+          if (chrome.runtime?.lastError) {
+            setStatusMessage('Error starting crawler.');
+            return;
+          }
+          if (res?.success) {
+            setStatusMessage(res.data?.message || 'Crawler started!');
+            loadCrawlerState();
+          } else {
+            setStatusMessage(res?.data?.message || res?.error?.message || 'Failed to start crawler.');
+          }
+        }
+      );
+    } catch {
+      setStartingCrawl(false);
+      setStatusMessage('Communication error with active tab.');
+    }
+  };
+
+  const handleStopCrawl = () => {
+    chrome.runtime.sendMessage(
+      { type: 'CRAWLER_STOP', source: 'popup', timestamp: new Date().toISOString() },
+      () => {
+        loadCrawlerState();
+        setStatusMessage('Crawler stopped.');
+      }
+    );
+  };
+
+  const handleCrawlerNext = () => {
+    chrome.runtime.sendMessage(
+      { type: 'CRAWLER_NEXT_JOB', source: 'popup', timestamp: new Date().toISOString() },
+      () => {
+        loadCrawlerState();
+      }
+    );
+  };
+
+  const handleCrawlerSkip = () => {
+    chrome.runtime.sendMessage(
+      { type: 'CRAWLER_SKIP_JOB', source: 'popup', timestamp: new Date().toISOString() },
+      () => {
+        loadCrawlerState();
+      }
+    );
   };
 
   const tryScanTab = async (tabId: number) => {
@@ -990,6 +1086,125 @@ export const Popup: React.FC = () => {
           <ExternalLink className="w-3.5 h-3.5" />
           <span>Open Full Review Panel</span>
         </button>
+
+        {/* Live Active Crawler Banner & Kill Switch */}
+        {crawlerState?.active && (
+          <div className="p-3 bg-slate-900 border border-slate-700 rounded-lg text-white shadow-md space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">Batch Apply Active</span>
+              </div>
+              <span className="text-[11px] font-semibold bg-slate-800 px-2 py-0.5 rounded text-slate-300">
+                Job {(crawlerState.currentJobIndex || 0) + 1} of {crawlerState.totalJobs || crawlerState.jobs?.length}
+              </span>
+            </div>
+
+            <div className="text-xs">
+              <div className="font-semibold text-white truncate">
+                {crawlerState.jobs?.[crawlerState.currentJobIndex]?.title || 'Processing Application'}
+              </div>
+              <div className="text-slate-400 text-[11px] truncate">
+                {crawlerState.jobs?.[crawlerState.currentJobIndex]?.company || ''} &bull; {crawlerState.status === 'awaiting_user_submit' ? 'Review & Submit form' : 'Auto-filling fields...'}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={handleCrawlerNext}
+                className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold flex items-center justify-center space-x-1 transition-colors"
+              >
+                <SkipForward className="w-3 h-3" />
+                <span>Next Job</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCrawlerSkip}
+                className="py-1.5 px-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-[11px] font-medium flex items-center justify-center space-x-1 transition-colors"
+              >
+                <span>Skip</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleStopCrawl}
+                className="py-1.5 px-2 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-bold flex items-center justify-center space-x-1 transition-colors"
+                title="Instant Emergency Kill Switch"
+              >
+                <Square className="w-3 h-3 fill-white" />
+                <span>KILL</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Auto-Crawl & Batch Apply Card */}
+        <button
+          type="button"
+          onClick={() => setShowCrawlerSection(!showCrawlerSection)}
+          className="w-full py-2 px-3 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg font-medium text-xs flex items-center justify-between transition-colors"
+        >
+          <div className="flex items-center space-x-1.5">
+            <Compass className="w-3.5 h-3.5 text-purple-600" />
+            <span>Search & Apply (Job Crawler)</span>
+          </div>
+          <span className="text-[10px] font-semibold bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">
+            {showCrawlerSection ? 'Hide' : 'Configure'}
+          </span>
+        </button>
+
+        {showCrawlerSection && !crawlerState?.active && (
+          <div className="p-3 bg-purple-50/60 border border-purple-200 rounded-lg space-y-2 text-xs">
+            <div className="text-[11px] text-slate-600">
+              Scans job search page, opens each listing, autofills your details, and pauses for your review & submission.
+            </div>
+
+            <div className="flex items-center justify-between text-slate-700 pt-1">
+              <span>Max jobs in batch:</span>
+              <select
+                value={crawlMaxJobs}
+                onChange={(e) => setCrawlMaxJobs(Number(e.target.value))}
+                className="text-xs border border-slate-300 rounded px-2 py-0.5 bg-white text-slate-800 font-medium"
+              >
+                <option value={3}>3 jobs</option>
+                <option value={5}>5 jobs</option>
+                <option value={10}>10 jobs</option>
+                <option value={15}>15 jobs</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between text-slate-700">
+              <span>Tab mode:</span>
+              <select
+                value={crawlMode}
+                onChange={(e) => setCrawlMode(e.target.value as 'new_tab' | 'same_tab')}
+                className="text-xs border border-slate-300 rounded px-2 py-0.5 bg-white text-slate-800 font-medium"
+              >
+                <option value="new_tab">Companion Tab (Recommended)</option>
+                <option value="same_tab">Same Tab Navigation</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleStartCrawl}
+              disabled={startingCrawl}
+              className="w-full mt-2 py-2 px-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white rounded font-medium text-xs flex items-center justify-center space-x-1.5 shadow-sm transition-all"
+            >
+              {startingCrawl ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Scanning Listings...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>Start Crawl & Auto-Fill</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </footer>
 
       {/* Cover Letter Generator Modal */}

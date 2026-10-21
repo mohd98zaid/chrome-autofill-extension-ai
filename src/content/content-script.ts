@@ -15,6 +15,9 @@ import { UserProfile, Settings, CustomQA } from '../types/profile';
 import { FilledFieldRecord, FieldStatus } from '../types/session';
 import { resolveFieldValue, interpolateCoverLetter } from './resolver/field-resolver';
 import { cleanAnswerText } from '../utils/text-cleaner';
+import { JobPortalDetector } from './crawler/job-portal-detector';
+import { CrawlerOverlay } from './crawler/crawler-overlay';
+import { CrawlerSession } from '../types/crawler';
 import { logger } from '../utils/logger';
 
 class ContentScriptController {
@@ -59,6 +62,23 @@ class ContentScriptController {
     setTimeout(() => this.scanAndNotify(false), 400);
     setTimeout(() => this.scanAndNotify(false), 1200);
     setTimeout(() => this.scanAndNotify(false), 2500);
+
+    // If top frame and on a job portal/board page, check for jobs and display subtle launcher pill
+    if (window === window.top && JobPortalDetector.isSearchOrBoardPage()) {
+      setTimeout(() => {
+        const jobs = JobPortalDetector.extractJobListings(5);
+        if (jobs.length > 0) {
+          CrawlerOverlay.renderLauncherPill(jobs.length, () => {
+            chrome.runtime.sendMessage({
+              type: 'CRAWLER_START',
+              source: 'content',
+              payload: { maxJobs: jobs.length, mode: 'new_tab' },
+              timestamp: new Date().toISOString()
+            });
+          });
+        }
+      }, 1800);
+    }
   }
 
   private setupMessageListener() {
@@ -100,6 +120,47 @@ class ContentScriptController {
 
       case 'BG_DISMISS_SECURITY':
         return { success: true, acknowledged: true };
+
+      case 'CONTENT_EXTRACT_JOBS': {
+        const maxCount = (message.payload as { maxCount?: number })?.maxCount || 10;
+        const jobs = JobPortalDetector.extractJobListings(maxCount);
+        return { jobs };
+      }
+
+      case 'CRAWLER_STATE_UPDATED': {
+        const session = (message.payload as { session: CrawlerSession })?.session;
+        if (!session || !session.active) {
+          CrawlerOverlay.remove();
+          return { acknowledged: true };
+        }
+
+        CrawlerOverlay.render(
+          session,
+          () => {
+            chrome.runtime.sendMessage({
+              type: 'CRAWLER_NEXT_JOB',
+              source: 'content',
+              timestamp: new Date().toISOString()
+            });
+          },
+          () => {
+            chrome.runtime.sendMessage({
+              type: 'CRAWLER_SKIP_JOB',
+              source: 'content',
+              timestamp: new Date().toISOString()
+            });
+          },
+          () => {
+            CrawlerOverlay.remove();
+            chrome.runtime.sendMessage({
+              type: 'CRAWLER_STOP',
+              source: 'content',
+              timestamp: new Date().toISOString()
+            });
+          }
+        );
+        return { acknowledged: true };
+      }
 
       default:
         return { acknowledged: true };

@@ -11,6 +11,7 @@ import { ApplicationSession, FilledFieldRecord } from '../types/session';
 import { FieldDescriptor } from '../types/taxonomy';
 import { logger } from '../utils/logger';
 import { cleanAnswerText } from '../utils/text-cleaner';
+import { batchQueueManager } from './crawler/batch-queue-manager';
 
 class BackgroundService {
   private sessions: Map<number, ApplicationSession> = new Map();
@@ -93,6 +94,22 @@ class BackgroundService {
 
       case 'UI_PAUSE_AUTOFILL':
         return this.pauseAutofill(tabId);
+
+      // --- Crawler & Batch Application Actions ---
+      case 'CRAWLER_START':
+        return batchQueueManager.startCrawl(tabId, message.payload);
+
+      case 'CRAWLER_STOP':
+        return batchQueueManager.stopCrawl();
+
+      case 'CRAWLER_GET_STATE':
+        return batchQueueManager.getState();
+
+      case 'CRAWLER_NEXT_JOB':
+        return batchQueueManager.advanceJob('completed');
+
+      case 'CRAWLER_SKIP_JOB':
+        return batchQueueManager.advanceJob('skipped');
 
       case 'UI_GET_PROFILE':
         return storage.getProfile(message.payload?.profileId);
@@ -595,6 +612,7 @@ class BackgroundService {
     };
     logger.warn('ServiceWorker', `Security challenge encountered on tab ${tabId}. Pausing automation.`, trigger);
     await storage.saveSession(session);
+    batchQueueManager.handleSecurityPaused(String(trigger.type || 'security_challenge'));
   }
 
   private async startAutofill(tabId: number, fillPayload?: TriggerFillPayload): Promise<{ success: boolean; message?: string }> {
