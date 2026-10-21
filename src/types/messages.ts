@@ -15,6 +15,7 @@ export type ExtensionMessageType =
   | 'BG_DISMISS_SECURITY'
   | 'BG_PAUSE'
   | 'BG_RESUME'
+  | 'BG_ABORT_FILL'
   | 'UI_GET_SESSION'
   | 'UI_START_AUTOFILL'
   | 'UI_PAUSE_AUTOFILL'

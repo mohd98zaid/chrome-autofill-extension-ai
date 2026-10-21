@@ -270,6 +270,20 @@ export class BatchQueueManager {
     this.session.active = false;
     this.session.status = 'idle';
 
+    // Broadcast hard abort signal to all involved tabs
+    const tabsToAbort = [searchTabId, workerTabId].filter((id): id is number => typeof id === 'number');
+    for (const tid of tabsToAbort) {
+      try {
+        chrome.tabs.sendMessage(tid, {
+          type: 'BG_ABORT_FILL',
+          source: 'background',
+          timestamp: new Date().toISOString()
+        });
+      } catch {
+        // ignore
+      }
+    }
+
     if (workerTabId && this.session.mode === 'new_tab') {
       try {
         chrome.tabs.remove(workerTabId);

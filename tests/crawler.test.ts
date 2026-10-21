@@ -175,6 +175,10 @@ describe('Batch Queue Manager & Kill Switch', () => {
     const stoppedState = queueManager.getState();
     expect(stoppedState.active).toBe(false);
     expect(stoppedState.status).toBe('idle');
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      100,
+      expect.objectContaining({ type: 'BG_ABORT_FILL' })
+    );
   });
 
   it('handles security challenge pause', () => {

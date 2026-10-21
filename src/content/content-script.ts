@@ -32,6 +32,18 @@ class ContentScriptController {
   private currentDescriptors: Map<string, FieldDescriptor> = new Map();
   private elementMap: Map<string, HTMLElement> = new Map();
   private isFilling = false;
+  private isAborted = false;
+
+  public abortCurrentOperation(reason: string = 'User requested stop'): void {
+    logger.warn('ContentScript', `ABORTING all automation immediately: ${reason}`);
+    this.isAborted = true;
+    this.isFilling = false;
+    CrawlerOverlay.remove();
+    CrawlerOverlay.removeLauncherPill();
+    if (document.activeElement && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }
 
   constructor() {
     this.scanner = new DOMScanner();
@@ -122,6 +134,11 @@ class ContentScriptController {
       case 'BG_DISMISS_SECURITY':
         return { success: true, acknowledged: true };
 
+      case 'BG_ABORT_FILL':
+      case 'CRAWLER_STOP':
+        this.abortCurrentOperation('Abort signal received from background');
+        return { success: true, aborted: true };
+
       case 'CONTENT_EXTRACT_JOBS': {
         const maxCount = (message.payload as { maxCount?: number })?.maxCount || 10;
         const jobs = JobPortalDetector.extractJobListings(maxCount);
@@ -131,7 +148,7 @@ class ContentScriptController {
       case 'CRAWLER_STATE_UPDATED': {
         const session = (message.payload as { session: CrawlerSession })?.session;
         if (!session || !session.active) {
-          CrawlerOverlay.remove();
+          this.abortCurrentOperation('Crawler session inactive');
           return { acknowledged: true };
         }
 
@@ -152,7 +169,7 @@ class ContentScriptController {
             });
           },
           () => {
-            CrawlerOverlay.remove();
+            this.abortCurrentOperation('Kill switch clicked on overlay');
             chrome.runtime.sendMessage({
               type: 'CRAWLER_STOP',
               source: 'content',
@@ -240,10 +257,14 @@ class ContentScriptController {
     settings: Settings;
     fillPayload?: TriggerFillPayload;
   }): Promise<{ filledCount: number; records: FilledFieldRecord[]; lastStageReached?: boolean }> {
+    this.isAborted = false;
+
     // 1. If no fields currently detected on page, attempt to click "Apply" / "Easy Apply"
     const initialScan = this.scanner.scan();
     if (initialScan.fields.length === 0) {
+      if (this.isAborted) return { filledCount: 0, records: [] };
       await MultiStepWizardRunner.clickInitialApplyButton();
+      if (this.isAborted) return { filledCount: 0, records: [] };
     }
 
     let totalFilled = 0;
@@ -252,6 +273,11 @@ class ContentScriptController {
     let stepCount = 0;
 
     while (stepCount < maxSteps) {
+      if (this.isAborted) {
+        logger.warn('ContentScript', 'Multi-step wizard aborted by kill switch.');
+        break;
+      }
+
       stepCount++;
       logger.info('ContentScript', `Processing application wizard step ${stepCount}...`);
 
@@ -259,28 +285,48 @@ class ContentScriptController {
       totalFilled += res.filledCount;
       allRecords.push(...res.records);
 
+      if (this.isAborted) break;
+
       await new Promise((r) => setTimeout(r, 600));
+      if (this.isAborted) break;
+
+      // Check if validation error is present on current step (e.g. required field missing)
+      const errorIndicator = document.querySelector(
+        '.artdeco-inline-feedback--error, [aria-invalid="true"], .input-error, [class*="error-message" i]'
+      );
+      if (errorIndicator) {
+        logger.warn('ContentScript', 'Validation error present on step. Pausing automation for user correction.');
+        return { filledCount: totalFilled, records: allRecords, lastStageReached: true };
+      }
 
       const stepButton = MultiStepWizardRunner.findStepButton();
 
       if (stepButton.type === 'final') {
-        // Last stage reached! STOP automation and wait for user intervention
+        // Last stage reached! STOP automation completely and return focus to user
         logger.info('ContentScript', `Final submission stage reached with button: "${stepButton.label}". Pausing for user review.`);
+
+        if (document.activeElement && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
 
         // Listen for user submission confirmation to auto-advance crawler
         MultiStepWizardRunner.listenForSubmissionSuccess(() => {
-          chrome.runtime.sendMessage({
-            type: 'CRAWLER_NEXT_JOB',
-            source: 'content',
-            timestamp: new Date().toISOString()
-          });
+          if (!this.isAborted) {
+            chrome.runtime.sendMessage({
+              type: 'CRAWLER_NEXT_JOB',
+              source: 'content',
+              timestamp: new Date().toISOString()
+            });
+          }
         });
 
         return { filledCount: totalFilled, records: allRecords, lastStageReached: true };
       } else if (stepButton.type === 'intermediate' && stepButton.button) {
+        if (this.isAborted) break;
         logger.info('ContentScript', `Advancing intermediate step with button: "${stepButton.label}"`);
         stepButton.button.click();
         await new Promise((r) => setTimeout(r, 1500));
+        if (this.isAborted) break;
       } else {
         // No further step buttons found (single-page form or completed)
         break;
@@ -295,6 +341,9 @@ class ContentScriptController {
     settings: Settings;
     fillPayload?: TriggerFillPayload;
   }): Promise<{ filledCount: number; records: FilledFieldRecord[] }> {
+    if (this.isAborted) {
+      return { filledCount: 0, records: [] };
+    }
     if (this.isFilling) {
       throw new Error('Fill operation already in progress');
     }
@@ -338,6 +387,11 @@ class ContentScriptController {
       const failedSelects: { field: FieldDescriptor; element: HTMLElement; targetValue: any; classification: any }[] = [];
 
       for (const field of descriptorsToFill) {
+        if (this.isAborted) {
+          logger.warn('ContentScript', 'Fill loop aborted by kill switch.');
+          break;
+        }
+
         // Find DOM element
         const element = this.findElement(field);
         if (!element || !this.scanner.isVisible(element)) continue;
@@ -555,9 +609,10 @@ class ContentScriptController {
       }
 
       // Retry pass for dependent selects (e.g. State options loaded via AJAX after Country was chosen)
-      if (failedSelects.length > 0) {
+      if (failedSelects.length > 0 && !this.isAborted) {
         await new Promise((resolve) => setTimeout(resolve, 300));
         for (const item of failedSelects) {
+          if (this.isAborted) break;
           const retryInteraction = await this.interactionEngine.fill(item.element, item.field, item.targetValue);
           if (retryInteraction.success) {
             const verification = this.verificationEngine.verify(item.element, item.field, item.targetValue);
@@ -589,6 +644,9 @@ class ContentScriptController {
       }
     } finally {
       this.isFilling = false;
+      if (this.isAborted && document.activeElement && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     }
 
     return { filledCount: records.length, records };

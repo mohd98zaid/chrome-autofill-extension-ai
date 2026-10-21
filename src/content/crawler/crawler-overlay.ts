@@ -23,6 +23,7 @@ export class CrawlerOverlay {
       container.style.zIndex = '2147483647';
       container.style.fontFamily = 'system-ui, -apple-system, sans-serif';
       container.style.maxWidth = '92vw';
+      container.style.pointerEvents = 'none';
       container.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)';
       container.style.borderRadius = '12px';
       container.style.overflow = 'hidden';
@@ -48,7 +49,7 @@ export class CrawlerOverlay {
     }
 
     container.innerHTML = `
-      <div style="background: #111827; color: #f9fafb; padding: 12px 18px; border-radius: 12px; border: 1px solid #374151; display: flex; align-items: center; gap: 16px; font-size: 13px;">
+      <div style="pointer-events: auto; background: #111827; color: #f9fafb; padding: 12px 18px; border-radius: 12px; border: 1px solid #374151; display: flex; align-items: center; gap: 16px; font-size: 13px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${statusBg}; box-shadow: 0 0 8px ${statusBg};"></span>
           <span style="font-weight: 700; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px;">Batch Apply</span>
