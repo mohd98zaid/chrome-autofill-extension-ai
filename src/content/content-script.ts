@@ -39,6 +39,37 @@ class ContentScriptController {
     return Date.now() - this.lastUserInteractionTime < 2500;
   }
 
+  private isTopFrame(): boolean {
+    try {
+      return typeof window !== 'undefined' && window.self === window.top;
+    } catch {
+      return false;
+    }
+  }
+
+  private safeSendMessage<T = any>(
+    message: ExtensionMessage<unknown>,
+    callback?: (response: ExtensionResponse<T> | undefined) => void
+  ): void {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+        return;
+      }
+      chrome.runtime.sendMessage(message, (response) => {
+        const lastErr = chrome.runtime.lastError;
+        if (lastErr) {
+          logger.debug('ContentScript', `Runtime message acknowledged with status: ${lastErr.message}`);
+          return;
+        }
+        if (callback) {
+          callback(response);
+        }
+      });
+    } catch (err) {
+      logger.debug('ContentScript', `safeSendMessage exception: ${String(err)}`);
+    }
+  }
+
   private setupUserActivityListeners(): void {
     const onUserActivity = (e: Event) => {
       if (e.isTrusted) {
@@ -65,18 +96,25 @@ class ContentScriptController {
     this.isFilling = false;
     CrawlerOverlay.remove();
     CrawlerOverlay.removeLauncherPill();
-    if (document.activeElement && document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
+    try {
+      if (document.activeElement && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    } catch {}
 
     // Broadcast hard abort signal to all child iframes if in top frame
-    if (window === window.top) {
+    if (this.isTopFrame()) {
       try {
-        for (let i = 0; i < window.frames.length; i++) {
-          window.frames[i].postMessage({ type: 'BG_ABORT_FILL', source: 'content_top' }, '*');
+        const frames = window.frames;
+        for (let i = 0; i < frames.length; i++) {
+          try {
+            frames[i].postMessage({ type: 'BG_ABORT_FILL', source: 'content_top' }, '*');
+          } catch {
+            // Cross-origin iframe security restrictions handled gracefully
+          }
         }
       } catch {
-        // Cross-origin iframe security restrictions handled gracefully
+        // Cross-origin window.frames access handled gracefully
       }
     }
   }
@@ -114,20 +152,30 @@ class ContentScriptController {
     setTimeout(() => this.scanAndNotify(false), 2500);
 
     // If top frame and on a job portal/board page, check for jobs and display subtle launcher pill
-    if (window === window.top && JobPortalDetector.isSearchOrBoardPage()) {
-      setTimeout(() => {
-        const jobs = JobPortalDetector.extractJobListings(5);
-        if (jobs.length > 0) {
-          CrawlerOverlay.renderLauncherPill(jobs.length, () => {
-            chrome.runtime.sendMessage({
-              type: 'CRAWLER_START',
-              source: 'content',
-              payload: { maxJobs: jobs.length, mode: 'new_tab' },
-              timestamp: new Date().toISOString()
-            });
-          });
+    if (this.isTopFrame()) {
+      try {
+        if (JobPortalDetector.isSearchOrBoardPage()) {
+          setTimeout(() => {
+            try {
+              const jobs = JobPortalDetector.extractJobListings(5);
+              if (jobs.length > 0) {
+                CrawlerOverlay.renderLauncherPill(jobs.length, () => {
+                  this.safeSendMessage({
+                    type: 'CRAWLER_START',
+                    source: 'content',
+                    payload: { maxJobs: jobs.length, mode: 'new_tab' },
+                    timestamp: new Date().toISOString()
+                  });
+                });
+              }
+            } catch (err) {
+              logger.debug('ContentScript', 'Error extracting job listings in launcher', { error: String(err) });
+            }
+          }, 1800);
         }
-      }, 1800);
+      } catch (err) {
+        logger.debug('ContentScript', 'isSearchOrBoardPage check failed', { error: String(err) });
+      }
     }
   }
 
@@ -192,14 +240,14 @@ class ContentScriptController {
         CrawlerOverlay.render(
           session,
           () => {
-            chrome.runtime.sendMessage({
+            this.safeSendMessage({
               type: 'CRAWLER_NEXT_JOB',
               source: 'content',
               timestamp: new Date().toISOString()
             });
           },
           () => {
-            chrome.runtime.sendMessage({
+            this.safeSendMessage({
               type: 'CRAWLER_SKIP_JOB',
               source: 'content',
               timestamp: new Date().toISOString()
@@ -207,7 +255,7 @@ class ContentScriptController {
           },
           () => {
             this.abortCurrentOperation('Kill switch clicked on overlay');
-            chrome.runtime.sendMessage({
+            this.safeSendMessage({
               type: 'CRAWLER_STOP',
               source: 'content',
               timestamp: new Date().toISOString()
@@ -223,19 +271,73 @@ class ContentScriptController {
   }
 
   public async scanAndNotify(allowAutoExpand: boolean = false): Promise<PageScannedPayload> {
-    const isTopFrame = window === window.top;
-    let scanResult = this.scanner.scan();
+    const isTopFrame = this.isTopFrame();
+    try {
+      let scanResult = this.scanner.scan();
 
-    // NEVER auto-expand during passive scans. Only allow if explicitly permitted during active user-initiated fill.
-    if (allowAutoExpand && isTopFrame && scanResult.fields.length <= 1) {
-      const didExpand = await this.expandCandidateSections();
-      if (didExpand) {
-        scanResult = this.scanner.scan();
+      // NEVER auto-expand during passive scans. Only allow if explicitly permitted during active user-initiated fill.
+      if (allowAutoExpand && isTopFrame && scanResult.fields.length <= 1) {
+        const didExpand = await this.expandCandidateSections();
+        if (didExpand) {
+          scanResult = this.scanner.scan();
+        }
       }
-    }
 
-    // Subframes without any actual form fields must NEVER notify background or overwrite main tab session
-    if (!isTopFrame && scanResult.fields.length === 0) {
+      // Subframes without any actual form fields must NEVER notify background or overwrite main tab session
+      if (!isTopFrame && scanResult.fields.length === 0) {
+        return {
+          url: window.location.href,
+          domain: window.location.hostname,
+          title: document.title,
+          fields: [],
+          isJobDescriptionPresent: false
+        };
+      }
+
+      this.currentDescriptors.clear();
+      this.elementMap = scanResult.elementMap || new Map();
+      for (const f of scanResult.fields) {
+        this.currentDescriptors.set(f.id, f);
+      }
+
+      // Always report active security challenge to background coordinator (Rule 9)
+      if (scanResult.securityTrigger && (isTopFrame || scanResult.fields.length > 0)) {
+        this.safeSendMessage({
+          type: 'CONTENT_SECURITY_DETECTED',
+          source: 'content',
+          payload: scanResult.securityTrigger,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const jd = isTopFrame ? this.jdExtractor.extract() : null;
+
+      const payload: PageScannedPayload = {
+        url: window.location.href,
+        domain: window.location.hostname,
+        title: document.title,
+        fields: scanResult.fields,
+        isJobDescriptionPresent: Boolean(jd),
+        jobDetails: jd
+          ? {
+              title: jd.title || '',
+              company: jd.company || '',
+              location: jd.location || '',
+              description: jd.description || ''
+            }
+          : undefined
+      };
+
+      this.safeSendMessage({
+        type: 'CONTENT_PAGE_SCANNED',
+        source: 'content',
+        payload,
+        timestamp: new Date().toISOString()
+      });
+
+      return payload;
+    } catch (err) {
+      logger.debug('ContentScript', 'scanAndNotify encountered error', { error: String(err) });
       return {
         url: window.location.href,
         domain: window.location.hostname,
@@ -244,49 +346,6 @@ class ContentScriptController {
         isJobDescriptionPresent: false
       };
     }
-
-    this.currentDescriptors.clear();
-    this.elementMap = scanResult.elementMap || new Map();
-    for (const f of scanResult.fields) {
-      this.currentDescriptors.set(f.id, f);
-    }
-
-    // Always report active security challenge to background coordinator (Rule 9)
-    if (scanResult.securityTrigger && (isTopFrame || scanResult.fields.length > 0)) {
-      chrome.runtime.sendMessage({
-        type: 'CONTENT_SECURITY_DETECTED',
-        source: 'content',
-        payload: scanResult.securityTrigger,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    const jd = isTopFrame ? this.jdExtractor.extract() : null;
-
-    const payload: PageScannedPayload = {
-      url: window.location.href,
-      domain: window.location.hostname,
-      title: document.title,
-      fields: scanResult.fields,
-      isJobDescriptionPresent: Boolean(jd),
-      jobDetails: jd
-        ? {
-            title: jd.title || '',
-            company: jd.company || '',
-            location: jd.location || '',
-            description: jd.description || ''
-          }
-        : undefined
-    };
-
-    chrome.runtime.sendMessage({
-      type: 'CONTENT_PAGE_SCANNED',
-      source: 'content',
-      payload,
-      timestamp: new Date().toISOString()
-    });
-
-    return payload;
   }
 
   private async executeFillWithMultiStep(payload: {
@@ -364,7 +423,7 @@ class ContentScriptController {
         // Listen for user submission confirmation to auto-advance crawler
         MultiStepWizardRunner.listenForSubmissionSuccess(() => {
           if (!this.isAborted) {
-            chrome.runtime.sendMessage({
+            this.safeSendMessage({
               type: 'CRAWLER_NEXT_JOB',
               source: 'content',
               timestamp: new Date().toISOString()
@@ -679,7 +738,7 @@ class ContentScriptController {
         records.push(record);
 
         // Notify background of filled field
-        chrome.runtime.sendMessage({
+        this.safeSendMessage({
           type: 'CONTENT_FIELD_FILLED',
           source: 'content',
           payload: record,
@@ -715,7 +774,7 @@ class ContentScriptController {
               timestamp: new Date().toISOString()
             };
             records.push(record);
-            chrome.runtime.sendMessage({
+            this.safeSendMessage({
               type: 'CONTENT_FIELD_FILLED',
               source: 'content',
               payload: record,
@@ -1329,6 +1388,9 @@ class ContentScriptController {
     isMultiSelect?: boolean
   ): Promise<{ answer: string; selectedOptions?: string[] } | null> {
     try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+        return null;
+      }
       const pageTitle = document.title || '';
       const domain = window.location.hostname || '';
 
@@ -1401,6 +1463,9 @@ class ContentScriptController {
     }
 
     try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+        return null;
+      }
       const response = await new Promise<{ coverLetter?: string }>((resolve) => {
         chrome.runtime.sendMessage(
           {
@@ -1439,10 +1504,18 @@ class ContentScriptController {
   }
 
   private handleMutation() {
-    if (this.isFilling) return;
-    this.scanAndNotify();
+    try {
+      if (this.isFilling) return;
+      this.scanAndNotify();
+    } catch (err) {
+      logger.debug('ContentScript', 'handleMutation error', { error: String(err) });
+    }
   }
 }
 
-// Instantiate controller in content page
-new ContentScriptController();
+// Instantiate controller in content page safely
+try {
+  new ContentScriptController();
+} catch (err) {
+  logger.debug('ContentScript', 'ContentScriptController initialization error', { error: String(err) });
+}

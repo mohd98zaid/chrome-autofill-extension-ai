@@ -14,55 +14,68 @@ export class MutationWatcher {
     this.options = options;
   }
 
-  public start(targetNode: Node = document.body) {
+  public start(targetNode?: Node) {
     if (this.observer) return;
 
-    this.observer = new MutationObserver((mutations) => {
-      let shouldTrigger = false;
+    // Gracefully resolve root node; document.documentElement is always defined even before body loads
+    const target = targetNode || document.documentElement || document.body || document;
+    if (!target) {
+      if (typeof window !== 'undefined' && document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => this.start(), { once: true });
+      }
+      return;
+    }
 
-      for (const mut of mutations) {
-        if (mut.type === 'childList' && mut.addedNodes.length > 0) {
-          for (const node of Array.from(mut.addedNodes)) {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-              const el = node as HTMLElement;
-              // Check if newly added node contains inputs, forms, or security challenges
-              if (
-                el.matches &&
-                (el.matches('input, select, textarea, [role="combobox"], mat-select, ng-select, .g-recaptcha, iframe[src*="captcha"]') ||
-                  el.querySelector('input, select, textarea, [role="combobox"], mat-select, ng-select, .g-recaptcha, iframe[src*="captcha"]'))
-              ) {
-                shouldTrigger = true;
-                break;
+    try {
+      this.observer = new MutationObserver((mutations) => {
+        let shouldTrigger = false;
+
+        for (const mut of mutations) {
+          if (mut.type === 'childList' && mut.addedNodes.length > 0) {
+            for (const node of Array.from(mut.addedNodes)) {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const el = node as HTMLElement;
+                // Check if newly added node contains inputs, forms, or security challenges
+                if (
+                  el.matches &&
+                  (el.matches('input, select, textarea, [role="combobox"], mat-select, ng-select, .g-recaptcha, iframe[src*="captcha"]') ||
+                    el.querySelector('input, select, textarea, [role="combobox"], mat-select, ng-select, .g-recaptcha, iframe[src*="captcha"]'))
+                ) {
+                  shouldTrigger = true;
+                  break;
+                }
               }
             }
+          } else if (mut.type === 'attributes') {
+            const target = mut.target as HTMLElement;
+            if (
+              target &&
+              (target.matches?.('input, select, textarea, mat-select, ng-select, form, [role="form"], [role="tabpanel"], .step, [data-step]') ||
+                target.querySelector?.('input, select, textarea, mat-select, ng-select'))
+            ) {
+              shouldTrigger = true;
+              break;
+            }
           }
-        } else if (mut.type === 'attributes') {
-          const target = mut.target as HTMLElement;
-          if (
-            target &&
-            (target.matches?.('input, select, textarea, mat-select, ng-select, form, [role="form"], [role="tabpanel"], .step, [data-step]') ||
-              target.querySelector?.('input, select, textarea, mat-select, ng-select'))
-          ) {
-            shouldTrigger = true;
-            break;
-          }
+          if (shouldTrigger) break;
         }
-        if (shouldTrigger) break;
-      }
 
-      if (shouldTrigger) {
-        this.triggerDebounced();
-      }
-    });
+        if (shouldTrigger) {
+          this.triggerDebounced();
+        }
+      });
 
-    this.observer.observe(targetNode, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden']
-    });
+      this.observer.observe(target, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden', 'aria-hidden']
+      });
 
-    logger.debug('MutationWatcher', 'Started watching DOM mutations');
+      logger.debug('MutationWatcher', 'Started watching DOM mutations');
+    } catch (err) {
+      logger.debug('MutationWatcher', 'Could not start MutationObserver', { error: String(err) });
+    }
   }
 
   public stop() {

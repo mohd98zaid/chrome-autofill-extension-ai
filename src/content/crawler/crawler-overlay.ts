@@ -27,7 +27,10 @@ export class CrawlerOverlay {
       container.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)';
       container.style.borderRadius = '12px';
       container.style.overflow = 'hidden';
-      document.body.appendChild(container);
+      const root = document.body || document.documentElement;
+      if (root) {
+        root.appendChild(container);
+      }
     }
 
     const currentJob = session.jobs[session.currentJobIndex];
@@ -119,7 +122,9 @@ export class CrawlerOverlay {
       </div>
     `;
 
-    document.body.appendChild(pill);
+    const root = document.body || document.documentElement;
+    if (!root) return;
+    root.appendChild(pill);
 
     pill.onclick = (e) => {
       const target = e.target as HTMLElement;

@@ -10,6 +10,7 @@ export default defineConfig({
   build: {
     emptyOutDir: false,
     outDir: 'dist',
+    sourcemap: true,
     lib: {
       entry: resolve(__dirname, 'src/content/content-script.ts'),
       name: 'ContentScriptController',
