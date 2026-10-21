@@ -95,6 +95,9 @@ class BackgroundService {
       case 'UI_PAUSE_AUTOFILL':
         return this.pauseAutofill(tabId);
 
+      case 'UI_ABORT_AUTOFILL':
+        return this.abortAutofill(tabId);
+
       // --- Crawler & Batch Application Actions ---
       case 'CRAWLER_START':
         return batchQueueManager.startCrawl(tabId, message.payload);
@@ -675,6 +678,23 @@ class BackgroundService {
     const session = await this.getSession(tabId);
     session.status = 'NEEDS_USER';
     await storage.saveSession(session);
+  }
+
+  private async abortAutofill(tabId: number): Promise<{ success: boolean; aborted: boolean }> {
+    try {
+      chrome.tabs.sendMessage(tabId, {
+        type: 'BG_ABORT_FILL',
+        source: 'background',
+        timestamp: new Date().toISOString()
+      });
+    } catch {
+      // ignore
+    }
+
+    const session = await this.getSession(tabId);
+    session.status = 'READY';
+    await storage.saveSession(session);
+    return { success: true, aborted: true };
   }
 }
 

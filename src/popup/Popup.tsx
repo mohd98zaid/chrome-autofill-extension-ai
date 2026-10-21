@@ -347,6 +347,29 @@ export const Popup: React.FC = () => {
     }
   };
 
+  const handleAbortAutofill = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        chrome.runtime.sendMessage(
+          { type: 'UI_ABORT_AUTOFILL', source: 'popup', tabId: tab.id, timestamp: new Date().toISOString() },
+          () => {
+            setFilling(false);
+            setStatusMessage('Autofill stopped immediately by user.');
+            loadData();
+          }
+        );
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'BG_ABORT_FILL',
+          source: 'popup',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch {
+      setFilling(false);
+    }
+  };
+
   const handleSelectCV = (id: string) => {
     setSelectedProfileId(id);
     chrome.runtime.sendMessage(
@@ -1024,33 +1047,39 @@ export const Popup: React.FC = () => {
 
       {/* Footer Actions */}
       <footer className="pt-2 border-t border-slate-200 space-y-2">
-        <button
-          onClick={handleStartAutofill}
-          disabled={filling}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg font-medium text-xs shadow-sm flex items-center justify-center space-x-2 transition-all cursor-pointer"
-        >
-          {filling ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Filling & Verifying...</span>
-            </>
-          ) : (session?.pendingFields?.length || 0) > 0 ? (
-            <>
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Fill Detected Fields ({session?.pendingFields?.length})</span>
-            </>
-          ) : (session?.filledFields?.length || 0) > 0 ? (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              <span>Re-fill Form Fields</span>
-            </>
-          ) : (
-            <>
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Scan & Fill Fields</span>
-            </>
-          )}
-        </button>
+        {filling ? (
+          <button
+            type="button"
+            onClick={handleAbortAutofill}
+            className="w-full py-2.5 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center justify-center space-x-2 transition-all cursor-pointer animate-pulse"
+            title="Instant Stop / Kill Switch"
+          >
+            <Square className="w-4 h-4 fill-white" />
+            <span>STOP AUTOFILL (KILL SWITCH)</span>
+          </button>
+        ) : (
+          <button
+            onClick={handleStartAutofill}
+            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs shadow-sm flex items-center justify-center space-x-2 transition-all cursor-pointer"
+          >
+            {(session?.pendingFields?.length || 0) > 0 ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Fill Detected Fields ({session?.pendingFields?.length})</span>
+              </>
+            ) : (session?.filledFields?.length || 0) > 0 ? (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                <span>Re-fill Form Fields</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Scan & Fill Fields</span>
+              </>
+            )}
+          </button>
+        )}
 
         <button
           onClick={handleSavePageInputs}

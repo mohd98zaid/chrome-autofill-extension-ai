@@ -284,14 +284,8 @@ export class BatchQueueManager {
       }
     }
 
-    if (workerTabId && this.session.mode === 'new_tab') {
-      try {
-        chrome.tabs.remove(workerTabId);
-      } catch {
-        // ignore
-      }
-      this.session.workerTabId = undefined;
-    }
+    // Preserve the current application tab so user can review or manually submit without losing progress
+    this.session.workerTabId = undefined;
 
     if (searchTabId) {
       try {

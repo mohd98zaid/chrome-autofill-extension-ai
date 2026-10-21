@@ -33,6 +33,31 @@ class ContentScriptController {
   private elementMap: Map<string, HTMLElement> = new Map();
   private isFilling = false;
   private isAborted = false;
+  private lastUserInteractionTime = 0;
+
+  public isUserActivelyInteracting(): boolean {
+    return Date.now() - this.lastUserInteractionTime < 2500;
+  }
+
+  private setupUserActivityListeners(): void {
+    const onUserActivity = (e: Event) => {
+      if (e.isTrusted) {
+        this.lastUserInteractionTime = Date.now();
+      }
+    };
+    window.addEventListener('keydown', onUserActivity, { passive: true, capture: true });
+    window.addEventListener('mousedown', onUserActivity, { passive: true, capture: true });
+    window.addEventListener('pointerdown', onUserActivity, { passive: true, capture: true });
+    window.addEventListener('touchstart', onUserActivity, { passive: true, capture: true });
+    window.addEventListener('wheel', onUserActivity, { passive: true, capture: true });
+
+    // Listen for broadcast abort from parent/sibling frames
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'BG_ABORT_FILL') {
+        this.abortCurrentOperation('Broadcast abort from top frame');
+      }
+    });
+  }
 
   public abortCurrentOperation(reason: string = 'User requested stop'): void {
     logger.warn('ContentScript', `ABORTING all automation immediately: ${reason}`);
@@ -42,6 +67,17 @@ class ContentScriptController {
     CrawlerOverlay.removeLauncherPill();
     if (document.activeElement && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
+    }
+
+    // Broadcast hard abort signal to all child iframes if in top frame
+    if (window === window.top) {
+      try {
+        for (let i = 0; i < window.frames.length; i++) {
+          window.frames[i].postMessage({ type: 'BG_ABORT_FILL', source: 'content_top' }, '*');
+        }
+      } catch {
+        // Cross-origin iframe security restrictions handled gracefully
+      }
     }
   }
 
@@ -62,6 +98,7 @@ class ContentScriptController {
   private init() {
     logger.info('ContentScript', 'Initializing content script controller');
     this.setupMessageListener();
+    this.setupUserActivityListeners();
     this.mutationWatcher.start();
 
     // Passive scan on idle load - STRICTLY read-only, never auto-click or auto-trigger anything
@@ -259,6 +296,13 @@ class ContentScriptController {
   }): Promise<{ filledCount: number; records: FilledFieldRecord[]; lastStageReached?: boolean }> {
     this.isAborted = false;
 
+    // Yield if user is actively interacting with the page
+    while (this.isUserActivelyInteracting()) {
+      if (this.isAborted) return { filledCount: 0, records: [] };
+      logger.info('ContentScript', 'User is actively interacting with page. Yielding multi-step wizard...');
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
     // 1. If no fields currently detected on page, attempt to click "Apply" / "Easy Apply"
     const initialScan = this.scanner.scan();
     if (initialScan.fields.length === 0) {
@@ -271,12 +315,20 @@ class ContentScriptController {
     const allRecords: FilledFieldRecord[] = [];
     const maxSteps = 10;
     let stepCount = 0;
+    let lastClickedButton: HTMLElement | null = null;
 
     while (stepCount < maxSteps) {
       if (this.isAborted) {
         logger.warn('ContentScript', 'Multi-step wizard aborted by kill switch.');
         break;
       }
+
+      while (this.isUserActivelyInteracting()) {
+        if (this.isAborted) break;
+        logger.info('ContentScript', 'User is typing or clicking. Yielding step progression...');
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      if (this.isAborted) break;
 
       stepCount++;
       logger.info('ContentScript', `Processing application wizard step ${stepCount}...`);
@@ -323,10 +375,26 @@ class ContentScriptController {
         return { filledCount: totalFilled, records: allRecords, lastStageReached: true };
       } else if (stepButton.type === 'intermediate' && stepButton.button) {
         if (this.isAborted) break;
+
+        // If the same intermediate button has already been clicked without advancing, avoid infinite clicking loop
+        if (stepButton.button === lastClickedButton) {
+          logger.warn('ContentScript', 'Intermediate button did not advance page. Pausing for user intervention.');
+          return { filledCount: totalFilled, records: allRecords, lastStageReached: true };
+        }
+        lastClickedButton = stepButton.button;
+
         logger.info('ContentScript', `Advancing intermediate step with button: "${stepButton.label}"`);
         stepButton.button.click();
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1200));
         if (this.isAborted) break;
+
+        const postClickError = document.querySelector(
+          '.artdeco-inline-feedback--error, [aria-invalid="true"], .input-error, [class*="error-message" i]'
+        );
+        if (postClickError) {
+          logger.warn('ContentScript', 'Validation error appeared after step advancement. Pausing for user correction.');
+          return { filledCount: totalFilled, records: allRecords, lastStageReached: true };
+        }
       } else {
         // No further step buttons found (single-page form or completed)
         break;
@@ -392,9 +460,23 @@ class ContentScriptController {
           break;
         }
 
+        // If user is actively typing or clicking elsewhere on page, yield immediately
+        while (this.isUserActivelyInteracting()) {
+          if (this.isAborted) break;
+          logger.info('ContentScript', 'User is actively interacting with page. Yielding autofill...');
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        if (this.isAborted) break;
+
         // Find DOM element
         const element = this.findElement(field);
         if (!element || !this.scanner.isVisible(element)) continue;
+
+        // If this exact element is currently focused by user, NEVER interfere or overwrite
+        if (document.activeElement === element) {
+          logger.info('ContentScript', `User is currently focused on field ${field.id}. Skipping.`);
+          continue;
+        }
 
         // Classify field
         const classification = this.classifier.classify(field);

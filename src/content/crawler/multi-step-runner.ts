@@ -61,8 +61,8 @@ export class MultiStepWizardRunner {
    * Differentiates between INTERMEDIATE ("Next", "Continue") and FINAL ("Submit").
    */
   public static findStepButton(): { type: 'intermediate' | 'final' | 'none'; button?: HTMLElement; label?: string } {
-    const FINAL_SUBMIT_REGEX = /\b(submit|submit application|send application|confirm and submit|finish application|complete application)\b/i;
-    const INTERMEDIATE_REGEX = /^(next|continue|proceed|next step|review|review application|save & continue|save and continue)$/i;
+    const FINAL_SUBMIT_REGEX = /\b(submit|submit application|submit your application|send application|confirm and submit|finish application|complete application|complete submission|submit candidate)\b/i;
+    const INTERMEDIATE_REGEX = /^(next|continue|proceed|next step|review|review application|review your application|save & continue|save and continue)$/i;
 
     // Search in dialog, modal, form, or document body
     const container =

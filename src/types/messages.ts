@@ -19,6 +19,7 @@ export type ExtensionMessageType =
   | 'UI_GET_SESSION'
   | 'UI_START_AUTOFILL'
   | 'UI_PAUSE_AUTOFILL'
+  | 'UI_ABORT_AUTOFILL'
   | 'UI_GET_PROFILE'
   | 'UI_GET_PROFILES'
   | 'UI_SET_ACTIVE_PROFILE'

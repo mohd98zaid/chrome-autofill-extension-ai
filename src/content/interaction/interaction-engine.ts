@@ -15,12 +15,6 @@ export class InteractionEngine {
    */
   public async fill(element: HTMLElement, field: FieldDescriptor, value: string | string[] | boolean): Promise<InteractionResult> {
     try {
-      // 1. Ensure element is focusable and in view
-      if (typeof element.scrollIntoView === 'function') {
-        element.scrollIntoView({ behavior: 'auto', block: 'nearest' });
-      }
-      element.focus();
-
       let result: InteractionResult;
 
       switch (field.controlType) {
@@ -68,9 +62,6 @@ export class InteractionEngine {
           }
       }
 
-      // Final blur event to complete validation cycle
-      element.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
-
       return result;
     } catch (err) {
       logger.error('InteractionEngine', `Failed to fill field ${field.id}`, { error: String(err) });
@@ -114,46 +105,21 @@ export class InteractionEngine {
       cleanValue = cleanAnswerText(cleanValue, effectiveMax);
     }
 
-    try {
-      element.focus();
-      element.dispatchEvent(new FocusEvent('focus', { bubbles: true, cancelable: true, composed: true }));
-      element.dispatchEvent(new FocusEvent('focusin', { bubbles: true, cancelable: true, composed: true }));
-    } catch {
-      // ignore
-    }
+    // Explicitly set value via prototype descriptor (React 16+, Vue, Angular, SAP UI5)
+    // Completely non-intrusive: zero element.focus(), zero element.select(), zero viewport scrolling
+    const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
 
-    // 1. Try native execCommand insertion (triggers trusted browser beforeinput & input events for React, Angular, SAP UI5, Vue)
-    let execSuccess = false;
-    try {
-      if (typeof element.select === 'function') {
-        element.select();
-      }
-      execSuccess = document.execCommand('insertText', false, cleanValue);
-    } catch {
-      execSuccess = false;
-    }
-
-    // 2. Fallback / ensure value is explicitly set via prototype descriptor (React 16+, SAP UI5, Angular)
-    if (!execSuccess || element.value !== cleanValue) {
-      const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
-
-      if (descriptor && descriptor.set) {
-        descriptor.set.call(element, cleanValue);
-      } else {
-        element.value = cleanValue;
-      }
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(element, cleanValue);
+    } else {
+      element.value = cleanValue;
     }
 
     // Always ensure HTML attribute matches
     element.setAttribute('value', cleanValue);
 
-    // 3. Dispatch full event stream (Keyboard, Input, Change)
-    try {
-      element.dispatchEvent(new KeyboardEvent('keydown', { key: cleanValue.slice(-1) || 'a', bubbles: true, cancelable: true, composed: true }));
-      element.dispatchEvent(new KeyboardEvent('keypress', { key: cleanValue.slice(-1) || 'a', bubbles: true, cancelable: true, composed: true }));
-    } catch {}
-
+    // Dispatch full event stream (Input, Change) for reactive framework bindings
     try {
       element.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, composed: true, data: cleanValue, inputType: 'insertText' }));
       element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, composed: true, data: cleanValue, inputType: 'insertText' }));
@@ -161,22 +127,17 @@ export class InteractionEngine {
       element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true, composed: true }));
     }
 
-    try {
-      element.dispatchEvent(new KeyboardEvent('keyup', { key: cleanValue.slice(-1) || 'a', bubbles: true, cancelable: true, composed: true }));
-    } catch {}
-
     element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true, composed: true }));
 
-    // 4. Focusout & Blur (essential for jQuery Validation, SAP UI5, and Angular model committing)
+    // Synthetic focusout & blur without shifting actual document.activeElement
     try {
       element.dispatchEvent(new FocusEvent('focusout', { bubbles: true, cancelable: true, composed: true }));
       element.dispatchEvent(new FocusEvent('blur', { bubbles: true, cancelable: true, composed: true }));
-      element.blur();
     } catch {
       element.dispatchEvent(new Event('blur', { bubbles: true }));
     }
 
-    // 5. Clean up any existing error message or invalid state in the DOM
+    // Clean up any existing error message or invalid state in the DOM
     try {
       element.removeAttribute('aria-invalid');
       const container = element.closest('div, td, tr, li, p, section') || element.parentElement;
@@ -192,7 +153,7 @@ export class InteractionEngine {
 
     return {
       success: true,
-      strategyUsed: execSuccess ? 'execCommand_insertText' : 'native_setter_with_synthetic_events',
+      strategyUsed: 'native_setter_with_synthetic_events',
       attemptedValue: cleanValue
     };
   }
@@ -345,10 +306,6 @@ export class InteractionEngine {
       }
 
       if (matchedOption) {
-        try {
-          element.focus();
-        } catch {}
-
         element.selectedIndex = matchedOption.index;
         for (let i = 0; i < element.options.length; i++) {
           element.options[i].selected = i === matchedOption.index;
@@ -372,7 +329,6 @@ export class InteractionEngine {
         try {
           element.dispatchEvent(new FocusEvent('focusout', { bubbles: true, cancelable: true, composed: true }));
           element.dispatchEvent(new FocusEvent('blur', { bubbles: true, cancelable: true, composed: true }));
-          element.blur();
         } catch {
           element.dispatchEvent(new Event('blur', { bubbles: true }));
         }
@@ -517,7 +473,6 @@ export class InteractionEngine {
       const trimmed = item.trim();
       if (!trimmed) continue;
 
-      input.focus();
       await this.fillTextInput(input, trimmed);
 
       // Dispatch Enter key events
