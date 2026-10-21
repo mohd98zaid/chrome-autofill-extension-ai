@@ -57,6 +57,7 @@ export interface AISkillMatchResponse {
 export interface AIAnswerRequest {
   question: string;
   maxWords?: number;
+  maxLength?: number;
   tone?: string;
   profileEvidence: string[];
   jdContext?: string;

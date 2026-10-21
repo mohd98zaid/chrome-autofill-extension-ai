@@ -17,6 +17,7 @@ import {
   AIResumeParseRequest,
   AIResumeParseResponse
 } from '../../types/ai';
+import { cleanAnswerText } from '../../utils/text-cleaner';
 
 export class LocalAIProvider implements AIProvider {
   public readonly name = 'local';
@@ -200,16 +201,22 @@ export class LocalAIProvider implements AIProvider {
     // 2. Open-ended Text / Textarea answering
     // Check if asking for years of experience
     if (/how many years|years of (?:hands-on )?experience/i.test(qLower)) {
-      const yearMatches = evidenceText.match(/(\d+)\s*(?:\+|-)?\s*years/i);
+      const yearMatches = evidenceText.match(/(\d+(?:\.\d+)?)\s*(?:\+|-)?\s*years/i);
       const yearsNum = yearMatches ? yearMatches[1] : '3+';
       
-      let subject = 'software testing and quality engineering';
-      const inMatch = req.question.match(/(?:in|testing|with)\s+([^?*.,]+)/i);
-      if (inMatch && inMatch[1].trim().length > 2 && inMatch[1].trim().length < 60) {
-        subject = inMatch[1].trim();
+      let answer: string;
+      if (req.maxLength && req.maxLength <= 30) {
+        answer = `${yearsNum} years`;
+      } else {
+        let subject = 'software engineering and quality';
+        const inMatch = req.question.match(/(?:in|testing|with)\s+([^?*.,]+)/i);
+        if (inMatch && inMatch[1].trim().length > 2 && inMatch[1].trim().length < 60) {
+          subject = inMatch[1].trim();
+        }
+        answer = `I have ${yearsNum} years of hands-on experience in ${subject}. Throughout my career, I have focused on ensuring reliability, rigorous testing, and delivering high quality results.`;
       }
 
-      const answer = `I have ${yearsNum} years of hands-on experience in ${subject}. Throughout my career, I have focused on ensuring reliability, rigorous testing, and delivering high quality results.`;
+      answer = cleanAnswerText(answer, req.maxLength);
       return {
         answer,
         groundingStatus: 'passed',
@@ -243,6 +250,8 @@ export class LocalAIProvider implements AIProvider {
         answer = words.slice(0, req.maxWords).join(' ') + '.';
       }
     }
+
+    answer = cleanAnswerText(answer, req.maxLength);
 
     return {
       answer,
@@ -328,8 +337,10 @@ export class LocalAIProvider implements AIProvider {
       letter = `${p1}\n\n${p2}\n\n${p3}`;
     }
 
+    const cleanedLetter = cleanAnswerText(letter, undefined, candidateName);
+
     return {
-      coverLetter: letter,
+      coverLetter: cleanedLetter,
       groundingStatus: 'passed',
       unsupportedClaims: [],
       sourceRefs: ['profile_evidence', 'jd_context']

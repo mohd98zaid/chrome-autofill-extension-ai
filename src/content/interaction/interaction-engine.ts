@@ -1,5 +1,6 @@
 import { FieldDescriptor } from '../../types/taxonomy';
 import { logger } from '../../utils/logger';
+import { cleanAnswerText } from '../../utils/text-cleaner';
 
 export interface InteractionResult {
   success: boolean;
@@ -96,6 +97,21 @@ export class InteractionEngine {
           cleanValue = digits.slice(1);
         }
       }
+    }
+
+    // Enforce maxLength if defined on the element
+    const htmlMax = (element as HTMLInputElement | HTMLTextAreaElement).maxLength;
+    const attrMax = element.getAttribute('maxlength') || element.getAttribute('data-maxlength');
+    let effectiveMax: number | undefined;
+    if (typeof htmlMax === 'number' && htmlMax > 0 && htmlMax < 100000) {
+      effectiveMax = htmlMax;
+    } else if (attrMax) {
+      const parsed = parseInt(attrMax, 10);
+      if (!isNaN(parsed) && parsed > 0 && parsed < 100000) effectiveMax = parsed;
+    }
+
+    if (effectiveMax && cleanValue.length > effectiveMax) {
+      cleanValue = cleanAnswerText(cleanValue, effectiveMax);
     }
 
     try {

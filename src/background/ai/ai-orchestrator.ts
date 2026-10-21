@@ -4,6 +4,7 @@ import { CloudAIAdapter } from './cloud-adapter';
 import { GeminiAIAdapter } from './gemini-adapter';
 import { storage } from '../../storage';
 import { logger } from '../../utils/logger';
+import { cleanAnswerText } from '../../utils/text-cleaner';
 
 export class AIOrchestrator {
   private localProvider: LocalAIProvider;
@@ -66,6 +67,9 @@ export class AIOrchestrator {
   public async generateAnswer(req: Parameters<AIProvider['generateAnswer']>[0]) {
     const provider = await this.getActiveProvider();
     const result = await provider.generateAnswer(req);
+
+    // Ensure answer is cleaned to first-person, no long dashes, and fits maxLength
+    result.answer = cleanAnswerText(result.answer, req.maxLength);
 
     // Double check grounding per Security.md Section 10
     const grounding = await provider.validateGrounding({

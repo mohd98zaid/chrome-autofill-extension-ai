@@ -14,6 +14,7 @@ import { FieldDescriptor, SemanticFieldType } from '../types/taxonomy';
 import { UserProfile, Settings, CustomQA } from '../types/profile';
 import { FilledFieldRecord, FieldStatus } from '../types/session';
 import { resolveFieldValue, interpolateCoverLetter } from './resolver/field-resolver';
+import { cleanAnswerText } from '../utils/text-cleaner';
 import { logger } from '../utils/logger';
 
 class ContentScriptController {
@@ -916,9 +917,14 @@ class ContentScriptController {
     const promptText = (field.questionPrompt || field.labelText || field.nearbyText || field.placeholder || '').trim();
     if (!promptText || promptText.length < 4) return null;
 
+    const candidateName =
+      profile.identity?.fullName ||
+      `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim();
+
     // Step A: Check Q&A Memory Bank for existing predefined or learned answer
-    const rememberedAnswer = this.findMatchingQA(promptText, profile.customQA || []);
+    let rememberedAnswer = this.findMatchingQA(promptText, profile.customQA || []);
     if (rememberedAnswer) {
+      rememberedAnswer = cleanAnswerText(rememberedAnswer, field.maxLength, candidateName);
       logger.info('ContentScript', `Reusing saved answer from Q&A memory bank for: "${promptText.slice(0, 35)}..."`);
       if (field.controlType === 'textarea' || field.controlType === 'text') {
         return rememberedAnswer;
@@ -955,8 +961,9 @@ class ContentScriptController {
       if (field.controlType === 'textarea' || field.controlType === 'text') {
         const aiRes = await this.generateAndSaveRealtimeAnswer(promptText, field, detectedCompany, detectedRole);
         if (aiRes?.answer) {
-          this.recordNewQA(profile, promptText, aiRes.answer, detectedCompany);
-          return aiRes.answer;
+          const cleaned = cleanAnswerText(aiRes.answer, field.maxLength, candidateName);
+          this.recordNewQA(profile, promptText, cleaned, detectedCompany);
+          return cleaned;
         }
       }
 
@@ -1079,6 +1086,7 @@ class ContentScriptController {
               role: role || 'Job Applicant',
               options,
               isMultiSelect,
+              maxLength: field.maxLength,
               maxWords: field.controlType === 'textarea' ? 120 : 35
             },
             timestamp: new Date().toISOString()

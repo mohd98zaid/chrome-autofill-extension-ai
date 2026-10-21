@@ -111,6 +111,7 @@ export interface FieldDescriptor {
   isReadOnly: boolean;
   isRequired: boolean;
   currentValue: string | string[] | boolean | null;
+  maxLength?: number;
   selector: string;
 }
 

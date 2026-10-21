@@ -254,6 +254,7 @@ export class DOMScanner {
     const isReadOnly = (element as HTMLInputElement).readOnly || false;
 
     const currentValue = this.extractCurrentValue(element, controlType);
+    const maxLength = this.detectMaxLength(element);
     const fieldSignature = computeFieldSignature(element, this.domain, labelText);
     const selector = this.generateSelector(element);
     const id = `f_${index}_${fieldSignature}`;
@@ -281,6 +282,7 @@ export class DOMScanner {
       isReadOnly,
       isRequired,
       currentValue,
+      maxLength,
       selector
     };
   }
@@ -597,6 +599,60 @@ export class DOMScanner {
       return (element as HTMLInputElement).value || null;
     }
     return element.textContent?.trim() || null;
+  }
+
+  private detectMaxLength(element: HTMLElement): number | undefined {
+    // 1. Native HTML attribute
+    const htmlMax = (element as HTMLInputElement | HTMLTextAreaElement).maxLength;
+    if (typeof htmlMax === 'number' && htmlMax > 0 && htmlMax < 100000) {
+      return htmlMax;
+    }
+
+    const attrMax =
+      element.getAttribute('maxlength') ||
+      element.getAttribute('data-maxlength') ||
+      element.getAttribute('data-max-chars') ||
+      element.getAttribute('data-char-limit') ||
+      element.getAttribute('data-limit');
+    if (attrMax) {
+      const parsed = parseInt(attrMax, 10);
+      if (!isNaN(parsed) && parsed > 0 && parsed < 100000) {
+        return parsed;
+      }
+    }
+
+    // 2. Look for character counter in parent container or question wrapper (e.g. "222/127", "197/20")
+    const container =
+      element.closest(
+        '.form-group, .form-row, .field, [class*="question" i], [class*="input" i], [class*="field" i], [data-automation-id="questionItem"]'
+      ) || element.parentElement;
+
+    if (container) {
+      const counterEls = container.querySelectorAll(
+        '[class*="count" i], [class*="limit" i], [class*="char" i], [class*="length" i], [class*="hint" i], [class*="helper" i], small, span, div'
+      );
+      for (const counterEl of Array.from(counterEls)) {
+        if (counterEl === element || counterEl.contains(element)) continue;
+        const txt = (counterEl.textContent || '').trim();
+        if (!txt || txt.length > 50) continue;
+
+        // Pattern 1: Slash count e.g. "0/127", "222/127", "197/20", "0 / 20"
+        const slashMatch = txt.match(/\b\d{1,5}\s*\/\s*(\d{1,5})\b/);
+        if (slashMatch) {
+          const val = parseInt(slashMatch[1], 10);
+          if (!isNaN(val) && val > 0 && val < 100000) return val;
+        }
+
+        // Pattern 2: "Max 127 characters", "Limit: 127 chars"
+        const maxMatch = txt.match(/\b(?:max(?:imum)?|limit)\D{0,15}(\d{1,5})\s*(?:chars?|characters?)?\b/i);
+        if (maxMatch) {
+          const val = parseInt(maxMatch[1], 10);
+          if (!isNaN(val) && val > 0 && val < 100000) return val;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   private generateSelector(element: HTMLElement): string {

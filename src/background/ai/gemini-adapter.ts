@@ -18,6 +18,7 @@ import {
   AIResumeParseResponse
 } from '../../types/ai';
 import { logger } from '../../utils/logger';
+import { cleanAnswerText } from '../../utils/text-cleaner';
 
 export interface GeminiAdapterConfig {
   apiKey: string;
@@ -191,11 +192,13 @@ Output JSON:
   }
 
   public async generateAnswer(req: AIAnswerRequest): Promise<AIAnswerResponse> {
-    const system = `Generate a concise application answer using ONLY the supplied profile/resume evidence and the job description.
-Never fabricate employers, titles, years, certifications, projects, metrics, or technologies.
-If something is unsupported, acknowledge limitation instead of inventing.
-If available options are provided in req.options, select the option (or options if isMultiSelect) that most accurately reflects the candidate's background. Output the selected option exactly in "answer" (and list in "selectedOptions").
-Respect max words limit.
+    const system = `Generate a concise job application answer using ONLY the supplied profile/resume evidence and the job description.
+CRITICAL RULES:
+1. First-Person Voice: Always write from the applicant's perspective in the FIRST PERSON ("I", "my", "me"). NEVER speak in the third person (do NOT use "Candidate has", "[Name] has", "He has", "She has").
+2. Punctuation: Do NOT use long dashes (em-dashes "—", en-dashes "–", or "--"). Use standard commas or clean punctuation instead.
+3. Length Limits: If req.maxLength is specified, the answer MUST NOT exceed req.maxLength characters. If the question asks for years of experience (e.g. "How many years...") and the field has a short character limit (<= 30 characters), output only the concise number or duration (e.g. "5.8 years" or "5+ years"). Respect req.maxWords otherwise.
+4. Truthfulness: Never fabricate employers, titles, years, certifications, projects, metrics, or technologies. If something is unsupported, acknowledge limitation instead of inventing.
+5. If available options are provided in req.options, select the option (or options if isMultiSelect) that most accurately reflects the background. Output the selected option exactly in "answer" (and list in "selectedOptions").
 Output JSON:
 {
   "answer": string,
@@ -208,9 +211,10 @@ Output JSON:
     const user = JSON.stringify(req);
     const raw = await this.callGemini(system, user);
     const parsed = JSON.parse(raw);
+    const cleanedAnswer = cleanAnswerText(parsed.answer || '', req.maxLength);
     return {
-      answer: parsed.answer || '',
-      selectedOptions: parsed.selectedOptions || (parsed.answer ? [parsed.answer] : []),
+      answer: cleanedAnswer,
+      selectedOptions: parsed.selectedOptions || (cleanedAnswer ? [cleanedAnswer] : []),
       groundingStatus: parsed.groundingStatus || 'passed',
       unsupportedClaims: parsed.unsupportedClaims || [],
       sourceRefs: parsed.sourceRefs || []
@@ -220,6 +224,8 @@ Output JSON:
   public async generateCoverLetter(req: AICoverLetterRequest): Promise<AICoverLetterResponse> {
     const system = `Create a tailored professional cover letter for the supplied role and company.
 Use ONLY verified profile facts, approved resume evidence, and explicit job description information.
+Write strictly from the applicant's perspective in the FIRST PERSON ("I", "my").
+Do NOT use long dashes (em-dashes "—", en-dashes "–", or "--"). Use clean standard punctuation.
 If candidateName is provided, sign off with candidateName (never use placeholders like [Candidate Name] or [Your Name]).
 If company is provided, tailor specifically to that company (never use [Company Name]).
 If role is provided, tailor specifically to that role (never use [Job Title]).
@@ -236,8 +242,9 @@ Output JSON:
     const user = JSON.stringify(req);
     const raw = await this.callGemini(system, user);
     const parsed = JSON.parse(raw);
+    const cleanedCover = cleanAnswerText(parsed.coverLetter || '', undefined, req.candidateName);
     return {
-      coverLetter: parsed.coverLetter || '',
+      coverLetter: cleanedCover,
       groundingStatus: parsed.groundingStatus || 'passed',
       unsupportedClaims: parsed.unsupportedClaims || [],
       sourceRefs: parsed.sourceRefs || []

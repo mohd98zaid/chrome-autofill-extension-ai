@@ -10,6 +10,7 @@ import {
 import { ApplicationSession, FilledFieldRecord } from '../types/session';
 import { FieldDescriptor } from '../types/taxonomy';
 import { logger } from '../utils/logger';
+import { cleanAnswerText } from '../utils/text-cleaner';
 
 class BackgroundService {
   private sessions: Map<number, ApplicationSession> = new Map();
@@ -116,20 +117,24 @@ class BackgroundService {
           company?: string;
           role?: string;
           maxWords?: number;
+          maxLength?: number;
           options?: string[];
           isMultiSelect?: boolean;
         };
         const currentProfile = await storage.getProfile();
+        const candidateName =
+          currentProfile.identity.fullName ||
+          `${currentProfile.identity.firstName || ''} ${currentProfile.identity.lastName || ''}`.trim();
 
-        // Build rich profile evidence for grounding
+        // Build rich profile evidence for grounding (framed from applicant's first-person perspective)
         const profileEvidence = [
-          `Candidate Name: ${currentProfile.identity.fullName || `${currentProfile.identity.firstName} ${currentProfile.identity.lastName}`}`,
-          `Professional Summary: ${currentProfile.summary}`,
-          `Work Experience: ${currentProfile.experiences.map((e) => `${e.title} at ${e.company} (${e.startDate} - ${e.endDate}): ${e.description}`).join('; ')}`,
-          `Education: ${currentProfile.education.map((ed) => `${ed.degree} in ${ed.field} from ${ed.institution}`).join('; ')}`,
-          `Skills: ${currentProfile.skills.map((s) => s.canonicalName).join(', ')}`,
-          `Location: ${currentProfile.location.city}, ${currentProfile.location.country}`,
-          `Notice Period: ${currentProfile.preferences.noticePeriodDays} days`,
+          `Applicant Name: ${candidateName}`,
+          `My Summary: ${currentProfile.summary}`,
+          `My Work Experience: ${currentProfile.experiences.map((e) => `${e.title} at ${e.company} (${e.startDate} - ${e.endDate}): ${e.description}`).join('; ')}`,
+          `My Education: ${currentProfile.education.map((ed) => `${ed.degree} in ${ed.field} from ${ed.institution}`).join('; ')}`,
+          `My Skills: ${currentProfile.skills.map((s) => s.canonicalName).join(', ')}`,
+          `My Location: ${currentProfile.location.city}, ${currentProfile.location.country}`,
+          `My Notice Period: ${currentProfile.preferences.noticePeriodDays} days`,
           `Work Authorization: ${currentProfile.preferences.workAuthorization}`
         ];
 
@@ -139,15 +144,18 @@ class BackgroundService {
           profileEvidence,
           jdContext: payload.company ? `Company: ${payload.company}. Target Role: ${payload.role || 'Job Applicant'}` : undefined,
           maxWords: payload.maxWords || 120,
+          maxLength: payload.maxLength,
           options: payload.options,
           isMultiSelect: payload.isMultiSelect
         });
+
+        const cleanedAnswer = cleanAnswerText(aiRes.answer, payload.maxLength, candidateName);
 
         // Persist to profile's customQA Knowledge Bank
         const newQA: CustomQA = {
           id: `qa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           question: payload.question.trim(),
-          answer: aiRes.answer.trim(),
+          answer: cleanedAnswer.trim(),
           tags: payload.company ? [payload.company.trim()] : ['general'],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -167,8 +175,8 @@ class BackgroundService {
         logger.info('ServiceWorker', `Generated and saved Q&A for: "${payload.question.slice(0, 40)}..."`);
 
         return {
-          answer: aiRes.answer,
-          selectedOptions: aiRes.selectedOptions || (aiRes.answer ? [aiRes.answer] : []),
+          answer: cleanedAnswer,
+          selectedOptions: aiRes.selectedOptions || (cleanedAnswer ? [cleanedAnswer] : []),
           qaId: newQA.id,
           saved: true
         };
@@ -177,12 +185,16 @@ class BackgroundService {
       case 'UI_SAVE_QA': {
         const item = message.payload as { id?: string; question: string; answer: string; tags?: string[] };
         const currentProfile = await storage.getProfile();
+        const candidateName =
+          currentProfile.identity.fullName ||
+          `${currentProfile.identity.firstName || ''} ${currentProfile.identity.lastName || ''}`.trim();
+        const cleanedAnswer = cleanAnswerText(item.answer, undefined, candidateName);
         const existingQA = currentProfile.customQA || [];
         const qaId = item.id || `qa_${Date.now()}`;
         const updatedItem: CustomQA = {
           id: qaId,
           question: item.question.trim(),
-          answer: item.answer.trim(),
+          answer: cleanedAnswer.trim(),
           tags: item.tags || ['general'],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
