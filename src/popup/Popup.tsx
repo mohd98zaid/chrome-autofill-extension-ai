@@ -60,6 +60,7 @@ export const Popup: React.FC = () => {
       // 1. Immediate restore from chrome.storage.local
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
         chrome.storage.local.get(['user_profile', 'cv_profiles', 'active_profile_id'], (res) => {
+          if (chrome.runtime?.lastError || !res) return;
           const list = (Array.isArray(res.cv_profiles) && res.cv_profiles.length > 0)
             ? (res.cv_profiles as UserProfile[])
             : [];
@@ -85,6 +86,7 @@ export const Popup: React.FC = () => {
           chrome.runtime.sendMessage(
             { type: 'UI_GET_SESSION', source: 'popup', tabId: tab.id, timestamp: new Date().toISOString() },
             (res) => {
+              if (chrome.runtime?.lastError) return;
               if (res?.success) setSession(res.data);
             }
           );
@@ -94,6 +96,7 @@ export const Popup: React.FC = () => {
       chrome.runtime.sendMessage(
         { type: 'UI_GET_PROFILE', source: 'popup', timestamp: new Date().toISOString() },
         (res) => {
+          if (chrome.runtime?.lastError) return;
           if (res?.success && res.data) {
             setProfile(res.data);
             if (res.data.id) setSelectedProfileId(res.data.id);
@@ -104,6 +107,7 @@ export const Popup: React.FC = () => {
       chrome.runtime.sendMessage(
         { type: 'UI_GET_PROFILES', source: 'popup', timestamp: new Date().toISOString() },
         (res) => {
+          if (chrome.runtime?.lastError) return;
           if (res?.success && Array.isArray(res.data)) {
             setProfiles(res.data);
           }
@@ -120,8 +124,8 @@ export const Popup: React.FC = () => {
         tabId,
         { type: 'BG_TRIGGER_SCAN', source: 'popup', timestamp: new Date().toISOString() },
         async (res) => {
-          if (chrome.runtime.lastError || !res) {
-            // Tab was loaded before extension was active; inject script dynamically
+          if (chrome.runtime?.lastError || !res) {
+            // Tab was loaded before extension was active or is a restricted URL
             try {
               if (chrome.scripting?.executeScript) {
                 await chrome.scripting.executeScript({
@@ -133,12 +137,14 @@ export const Popup: React.FC = () => {
                     tabId,
                     { type: 'BG_TRIGGER_SCAN', source: 'popup', timestamp: new Date().toISOString() },
                     (retryRes) => {
+                      if (chrome.runtime?.lastError) return;
                       if (retryRes?.data?.fields) {
                         setSession((prev) => (prev ? { ...prev, pendingFields: retryRes.data.fields } : prev));
                       }
                       chrome.runtime.sendMessage(
                         { type: 'UI_GET_SESSION', source: 'popup', tabId, timestamp: new Date().toISOString() },
                         (sessRes) => {
+                          if (chrome.runtime?.lastError) return;
                           if (sessRes?.success) setSession(sessRes.data);
                         }
                       );
@@ -156,6 +162,7 @@ export const Popup: React.FC = () => {
             chrome.runtime.sendMessage(
               { type: 'UI_GET_SESSION', source: 'popup', tabId, timestamp: new Date().toISOString() },
               (sessRes) => {
+                if (chrome.runtime?.lastError) return;
                 if (sessRes?.success) setSession(sessRes.data);
               }
             );
@@ -192,6 +199,10 @@ export const Popup: React.FC = () => {
         },
         (res) => {
           setFilling(false);
+          if (chrome.runtime?.lastError) {
+            setStatusMessage('Error contacting extension background worker');
+            return;
+          }
           if (res?.success) {
             setStatusMessage(`Successfully filled ${res.data?.filledCount || 0} fields!`);
             loadData();
@@ -211,9 +222,11 @@ export const Popup: React.FC = () => {
     chrome.runtime.sendMessage(
       { type: 'UI_SET_ACTIVE_PROFILE', source: 'popup', payload: { id }, timestamp: new Date().toISOString() },
       () => {
+        if (chrome.runtime?.lastError) return;
         chrome.runtime.sendMessage(
           { type: 'UI_GET_PROFILE', source: 'popup', payload: { profileId: id }, timestamp: new Date().toISOString() },
           (res) => {
+            if (chrome.runtime?.lastError) return;
             if (res?.success && res.data) setProfile(res.data);
           }
         );
@@ -236,7 +249,7 @@ export const Popup: React.FC = () => {
         tab.id,
         { type: 'BG_EXTRACT_PAGE_VALUES', source: 'popup', timestamp: new Date().toISOString() },
         (extractRes) => {
-          if (chrome.runtime.lastError || !extractRes?.data) {
+          if (chrome.runtime?.lastError || !extractRes?.data) {
             setSavingPageInputs(false);
             setStatusMessage('Could not read page fields. Please refresh tab and retry.');
             return;
@@ -259,6 +272,10 @@ export const Popup: React.FC = () => {
             },
             (saveRes) => {
               setSavingPageInputs(false);
+              if (chrome.runtime?.lastError) {
+                setStatusMessage('Background worker not responding.');
+                return;
+              }
               if (saveRes?.success) {
                 const count = saveRes.data?.updatedCount || 0;
                 setProfile(saveRes.data?.profile || null);
@@ -287,12 +304,16 @@ export const Popup: React.FC = () => {
       return;
     }
     const toDelete = profiles.find((p) => p.id === profileId);
-    const name = toDelete?.experiences[0]?.title || toDelete?.identity?.fullName || profileId;
+    const name = toDelete?.experiences?.[0]?.title || toDelete?.identity?.fullName || profileId;
     if (!confirm(`Are you sure you want to delete profile "${name}"?`)) return;
 
     chrome.runtime.sendMessage(
       { type: 'UI_DELETE_PROFILE', source: 'popup', payload: { id: profileId }, timestamp: new Date().toISOString() },
       (res) => {
+        if (chrome.runtime?.lastError) {
+          setStatusMessage('Failed to delete profile: background service unreachable');
+          return;
+        }
         if (res?.success) {
           setStatusMessage('Profile deleted successfully');
           loadData();
@@ -326,6 +347,10 @@ export const Popup: React.FC = () => {
       },
       (res) => {
         setImporting(false);
+        if (chrome.runtime?.lastError) {
+          alert('Could not contact background service worker: ' + chrome.runtime.lastError.message);
+          return;
+        }
         if (res?.success) {
           setProfile(res.data?.profile || null);
           setShowImportModal(false);
@@ -343,7 +368,7 @@ export const Popup: React.FC = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(profile, null, 2));
     const dlAnchor = document.createElement('a');
     dlAnchor.setAttribute('href', dataStr);
-    const nameSlug = (profile.identity.fullName || `${profile.identity.firstName}_${profile.identity.lastName}` || 'profile')
+    const nameSlug = (profile.identity?.fullName || [profile.identity?.firstName, profile.identity?.lastName].filter(Boolean).join('_') || 'profile')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
@@ -367,6 +392,10 @@ export const Popup: React.FC = () => {
       chrome.runtime.sendMessage(
         { type: 'UI_UPDATE_PROFILE', source: 'popup', payload: validated, timestamp: new Date().toISOString() },
         (res) => {
+          if (chrome.runtime?.lastError) {
+            setStatusMessage('Profile updated locally, but background update failed');
+            return;
+          }
           if (res?.success || res?.updated) {
             setStatusMessage('Profile imported & saved successfully from JSON!');
             setShowJsonPasteModal(false);
@@ -417,6 +446,7 @@ export const Popup: React.FC = () => {
         chrome.runtime.sendMessage(
           { type: 'UI_DISMISS_SECURITY', source: 'popup', tabId: tab.id, timestamp: new Date().toISOString() },
           () => {
+            if (chrome.runtime?.lastError) return;
             if (session) {
               setSession({ ...session, status: 'READY', securityTrigger: undefined });
             }
@@ -509,7 +539,7 @@ export const Popup: React.FC = () => {
     setCoverCompany(detectedCompany);
 
     const candidateName = profile?.identity?.fullName || `${profile?.identity?.firstName || ''} ${profile?.identity?.lastName || ''}`.trim() || '';
-    const topSkills = profile?.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || '';
+    const topSkills = (profile?.skills || []).slice(0, 6).map((s) => s?.canonicalName || '').filter(Boolean).join(', ') || '';
 
     if (profile?.coverLetter) {
       const interpolated = interpolateCoverLetter(profile.coverLetter, {
@@ -542,7 +572,7 @@ export const Popup: React.FC = () => {
     setGeneratingLetter(true);
 
     const candidateName = profile.identity?.fullName || `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim() || '';
-    const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'professional problem solving';
+    const topSkills = (profile.skills || []).slice(0, 6).map((s) => s?.canonicalName || '').filter(Boolean).join(', ') || 'professional problem solving';
 
     const evidence: string[] = [];
     if (candidateName) {
@@ -552,10 +582,10 @@ export const Popup: React.FC = () => {
       evidence.push(`Professional Summary: ${profile.summary.trim()}`);
     }
     if (profile.skills && profile.skills.length > 0) {
-      evidence.push(`Key Skills: ${profile.skills.slice(0, 8).map((s) => s.canonicalName).join(', ')}`);
+      evidence.push(`Key Skills: ${profile.skills.slice(0, 8).map((s) => s?.canonicalName || '').filter(Boolean).join(', ')}`);
     }
     for (const exp of profile.experiences || []) {
-      if (exp.title && exp.company) {
+      if (exp?.title && exp?.company) {
         evidence.push(`${exp.title} at ${exp.company}${exp.description ? `: ${exp.description}` : ''}`);
       }
     }
@@ -584,7 +614,7 @@ export const Popup: React.FC = () => {
       },
       (res) => {
         setGeneratingLetter(false);
-        if (res?.success && res.data?.coverLetter) {
+        if (!chrome.runtime?.lastError && res?.success && res.data?.coverLetter) {
           setGeneratedLetter(res.data.coverLetter);
         } else {
           // Dynamic grounded fallback using candidate's verified profile data
@@ -630,12 +660,12 @@ export const Popup: React.FC = () => {
           },
           (res) => {
             setInsertingLetter(false);
-            if (res?.success) {
-              setStatusMessage('Cover letter inserted into webpage!');
-              setShowCoverLetterModal(false);
-            } else {
+            if (chrome.runtime?.lastError || !res?.success) {
               navigator.clipboard?.writeText(textToInsert);
               setStatusMessage('Copied cover letter to clipboard!');
+            } else {
+              setStatusMessage('Cover letter inserted into webpage!');
+              setShowCoverLetterModal(false);
             }
           }
         );
@@ -648,7 +678,7 @@ export const Popup: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full p-4 select-none relative">
+    <div className="flex flex-col w-[380px] min-h-[460px] h-full p-4 select-none relative bg-slate-50 text-slate-800">
       {/* Header */}
       <header className="flex items-center justify-between pb-3 border-b border-slate-200">
         <div className="flex items-center space-x-2">
@@ -755,7 +785,7 @@ export const Popup: React.FC = () => {
               >
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.experiences[0]?.title || p.identity.fullName || 'CV Profile'}
+                    {p.experiences?.[0]?.title || p.identity?.fullName || 'CV Profile'}
                   </option>
                 ))}
               </select>
@@ -773,9 +803,15 @@ export const Popup: React.FC = () => {
           {profile?.identity?.fullName || profile?.identity?.email ? (
             <div className="space-y-2">
               <div className="text-xs text-slate-600 space-y-0.5">
-                <p className="font-semibold text-slate-800">{profile.identity.fullName || `${profile.identity.firstName} ${profile.identity.lastName}`}</p>
-                <p>{profile.identity.email} · {profile.identity.phone}</p>
-                <p className="text-slate-400">{profile.skills.length} verified skills · {profile.experiences.length} experience(s)</p>
+                <p className="font-semibold text-slate-800">
+                  {profile.identity?.fullName || [profile.identity?.firstName, profile.identity?.lastName].filter(Boolean).join(' ') || 'Active Profile'}
+                </p>
+                <p>
+                  {[profile.identity?.email, profile.identity?.phone].filter(Boolean).join(' · ') || 'No contact details'}
+                </p>
+                <p className="text-slate-400">
+                  {(profile.skills || []).length} verified skills · {(profile.experiences || []).length} experience(s)
+                </p>
               </div>
 
               <div className="flex items-center space-x-1.5 pt-2 border-t border-slate-100">
@@ -1069,7 +1105,7 @@ export const Popup: React.FC = () => {
                         onClick={() => {
                           if (profile?.coverLetter) {
                             const candidateName = profile.identity?.fullName || `${profile.identity?.firstName || ''} ${profile.identity?.lastName || ''}`.trim() || 'Candidate';
-                            const topSkills = profile.skills?.slice(0, 6).map((s) => s.canonicalName).join(', ') || '';
+                            const topSkills = (profile.skills || []).slice(0, 6).map((s) => s?.canonicalName || '').filter(Boolean).join(', ') || '';
                             setTemplateLetter(interpolateCoverLetter(profile.coverLetter, {
                               company: coverCompany,
                               role: coverRole,
@@ -1100,7 +1136,7 @@ export const Popup: React.FC = () => {
                     </p>
                     <button
                       type="button"
-                      onClick={() => chrome.runtime.openOptionsPage()}
+                      onClick={openOptions}
                       className="px-3 py-1 bg-white border border-slate-300 hover:bg-slate-100 rounded text-xs font-medium text-slate-700"
                     >
                       Open Settings
@@ -1182,7 +1218,7 @@ export const Popup: React.FC = () => {
             <button
               type="button"
               onClick={() =>
-                setResumeText(`Alex Taylor\nSenior Full-Stack Engineer | 5+ Years | San Francisco, CA\n+1 555-0199 | Email: alex.taylor@example.com | LinkedIn: https://linkedin.com/in/alextaylor | GitHub: https://github.com/alextaylor | Portfolio: https://alextaylor.dev\nNationality: American | Visa: Citizen | Notice Period: 2 Weeks | Open to Remote\n\nPROFESSIONAL SUMMARY\nExperienced Full-Stack Software Engineer with 5+ years building scalable distributed web applications, cloud-native services, and AI-assisted tooling using React, TypeScript, Node.js, and Python.\n\nCORE COMPETENCIES & SKILLS\nTypeScript, React, Python, Node.js, Next.js, PostgreSQL, Docker, Kubernetes, AWS, GraphQL, REST APIs, CI/CD, Git, Tailwind CSS\n\nEXPERIENCE\nAcme Corp · Senior Software Engineer\nSan Francisco, CA | Jan 2021 – Present\n- Led architecture and deployment of real-time collaboration microservices serving 1M+ active users.\n\nEDUCATION\nUniversity of California, Berkeley · B.S. in Computer Science\nBerkeley, CA | Aug 2016 – May 2020`)
+                setResumeText(`Alex Taylor\nSenior Full-Stack Engineer | 5+ Years | San Francisco, CA\n+1 555-0199 | Email: alex.taylor@example.com | LinkedIn: https://linkedin.com/in/alextaylor | GitHub: https://github.com/alextaylor | Portfolio: https://alextaylor.dev\nNationality: American | Visa: Citizen | Notice Period: 2 Weeks | Open to Remote\n\nPROFESSIONAL SUMMARY\nExperienced Full-Stack Software Engineer with 5+ years building scalable distributed web applications, cloud-native services, and AI-assisted tooling using React, TypeScript, Node.js, and Python.\n\nCORE COMPETENCIES & SKILLS\nTypeScript, React, Python, Node.js, Next.js, PostgreSQL, Docker, Kubernetes, AWS, GraphQL, REST APIs, CI/CD, Git, Tailwind CSS\n\nEXPERIENCE\nAcme Corp - Senior Software Engineer\nSan Francisco, CA | Jan 2021 - Present\n- Led architecture and deployment of real-time collaboration microservices serving 1M+ active users.\n\nEDUCATION\nUniversity of California, Berkeley - B.S. in Computer Science\nBerkeley, CA | Aug 2016 - May 2020`)
               }
               className="w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors"
             >
@@ -1234,6 +1270,12 @@ export const Popup: React.FC = () => {
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
               {profiles.map((p) => {
                 const isSelected = p.id === (selectedProfileId || profile?.id);
+                const title = p.experiences?.[0]?.title || p.identity?.fullName || 'CV Profile';
+                const nameLoc = [
+                  p.identity?.fullName,
+                  [p.location?.city, p.location?.country].filter(Boolean).join(', ')
+                ].filter(Boolean).join(' · ');
+
                 return (
                   <div
                     key={p.id}
@@ -1247,16 +1289,20 @@ export const Popup: React.FC = () => {
                     <div className="flex items-start justify-between">
                       <div className="space-y-0.5 pr-2">
                         <p className="text-xs font-bold text-slate-800">
-                          {p.experiences[0]?.title || p.identity.fullName || 'CV Profile'}
+                          {title}
                         </p>
-                        <p className="text-[11px] text-slate-600 font-medium">
-                          {p.identity.fullName} · {p.location.city}, {p.location.country}
-                        </p>
-                        <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
-                          {p.summary}
-                        </p>
+                        {nameLoc && (
+                          <p className="text-[11px] text-slate-600 font-medium">
+                            {nameLoc}
+                          </p>
+                        )}
+                        {p.summary && (
+                          <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                            {p.summary}
+                          </p>
+                        )}
                         <p className="text-[10px] text-blue-600 font-medium pt-0.5">
-                          {p.skills.length} skills · {p.experiences.length} experience(s)
+                          {(p.skills || []).length} skills · {(p.experiences || []).length} experience(s)
                         </p>
                       </div>
                       <div className="flex items-center space-x-2">
