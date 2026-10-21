@@ -47,17 +47,17 @@ class ContentScriptController {
     this.setupMessageListener();
     this.mutationWatcher.start();
 
-    // Auto-scan on idle load
+    // Passive scan on idle load - STRICTLY read-only, never auto-click or auto-trigger anything
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      this.scanAndNotify();
+      this.scanAndNotify(false);
     } else {
-      window.addEventListener('DOMContentLoaded', () => this.scanAndNotify());
+      window.addEventListener('DOMContentLoaded', () => this.scanAndNotify(false));
     }
 
-    // Schedule SPA delayed rescans as REST API data renders into the DOM (e.g. Angular, React, Vue)
-    setTimeout(() => this.scanAndNotify(), 400);
-    setTimeout(() => this.scanAndNotify(), 1200);
-    setTimeout(() => this.scanAndNotify(), 2500);
+    // Schedule SPA delayed rescans as REST API data renders into the DOM (strictly read-only)
+    setTimeout(() => this.scanAndNotify(false), 400);
+    setTimeout(() => this.scanAndNotify(false), 1200);
+    setTimeout(() => this.scanAndNotify(false), 2500);
   }
 
   private setupMessageListener() {
@@ -80,7 +80,7 @@ class ContentScriptController {
 
     switch (message.type) {
       case 'BG_TRIGGER_SCAN':
-        return this.scanAndNotify();
+        return this.scanAndNotify(false);
 
       case 'BG_TRIGGER_FILL':
         return this.executeFill(message.payload as { profile: UserProfile; settings: Settings; fillPayload?: TriggerFillPayload });
@@ -105,11 +105,11 @@ class ContentScriptController {
     }
   }
 
-  public async scanAndNotify(allowAutoExpand: boolean = true): Promise<PageScannedPayload> {
+  public async scanAndNotify(allowAutoExpand: boolean = false): Promise<PageScannedPayload> {
     const isTopFrame = window === window.top;
     let scanResult = this.scanner.scan();
 
-    // If few/no fields found on top frame, check for collapsed accordions (e.g. SAP SuccessFactors, Workday) and empty repeaters
+    // NEVER auto-expand during passive scans. Only allow if explicitly permitted during active user-initiated fill.
     if (allowAutoExpand && isTopFrame && scanResult.fields.length <= 1) {
       const didExpand = await this.expandCandidateSections();
       if (didExpand) {
@@ -479,12 +479,27 @@ class ContentScriptController {
   private async expandCandidateSections(): Promise<boolean> {
     let expandedAny = false;
 
+    // Safety guard: NEVER click navigation, submission, or wizard action triggers
+    const DANGEROUS_ACTION_REGEX = /\b(submit|start|get\s*started|apply|continue|next|proceed|finish|done|review|send|complete|register|sign\s*in|login|log\s*in|save\s*&\s*submit)\b/i;
+
+    const isSafeToExpand = (el: HTMLElement, directText: string): boolean => {
+      if (el.getAttribute('type') === 'submit') return false;
+      if (DANGEROUS_ACTION_REGEX.test(directText)) return false;
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      if (DANGEROUS_ACTION_REGEX.test(aria)) return false;
+      if (el.tagName === 'A') {
+        const href = (el.getAttribute('href') || '').trim();
+        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) return false;
+      }
+      return true;
+    };
+
     // 0. Check for global "Expand All" / "Open All" controls
     const expandAllBtn = Array.from(
       document.querySelectorAll<HTMLElement>('a, button, [role="button"], span')
     ).find((b) => {
       const t = (b.textContent || '').trim().toLowerCase();
-      return t === 'expand all' || t === 'expand all sections' || t === 'open all';
+      return (t === 'expand all' || t === 'expand all sections' || t === 'open all') && isSafeToExpand(b, t);
     });
     if (expandAllBtn && this.scanner.isVisible(expandAllBtn)) {
       try {
@@ -507,23 +522,24 @@ class ContentScriptController {
       'employment history',
       'work history',
       'formal education',
-      'education',
       'academic history',
       'language skills',
       'languages',
-      'job-specific',
-      'job specific',
+      'job-specific questions',
+      'application questions',
       'general information'
     ];
 
     const headerCandidates = Array.from(
       document.querySelectorAll<HTMLElement>(
-        '[aria-expanded="false"], div[class*="accordion"], div[class*="header"], div[class*="title"], div[class*="rcm"], button, a, [role="button"], [role="tab"], h2, h3, h4'
+        '[aria-expanded="false"], div[class*="accordion"], [role="tab"], div[class*="rcm"]'
       )
     );
 
     for (const el of headerCandidates) {
       const directText = (el.textContent || '').trim().toLowerCase();
+      if (!isSafeToExpand(el, directText)) continue;
+
       if (
         directText.length < 80 &&
         sectionKeywords.some((kw) => directText.includes(kw))
@@ -533,10 +549,8 @@ class ContentScriptController {
         const hasCollapsedClass = typeof el.className === 'string' && (el.className.includes('collapsed') || el.className.includes('closed'));
         const next = el.nextElementSibling as HTMLElement | null;
         const nextHidden = next && (next.offsetParent === null || window.getComputedStyle(next).display === 'none' || next.hasAttribute('hidden'));
-        const parentNext = el.parentElement?.nextElementSibling as HTMLElement | null;
-        const parentNextHidden = parentNext && (parentNext.offsetParent === null || window.getComputedStyle(parentNext).display === 'none' || parentNext.hasAttribute('hidden'));
 
-        if (isAriaCollapsed || hasRightArrow || hasCollapsedClass || nextHidden || parentNextHidden) {
+        if (isAriaCollapsed || hasRightArrow || hasCollapsedClass || nextHidden) {
           try {
             el.click();
             expandedAny = true;
@@ -564,7 +578,7 @@ class ContentScriptController {
           container.querySelectorAll<HTMLElement>('a, button, [role="button"], span')
         ).find((b) => {
           const t = (b.textContent || '').trim().toLowerCase();
-          return t === 'add' || t === '+ add' || t === '(+) add' || t.startsWith('add ');
+          return (t === 'add' || t === '+ add' || t === '(+) add' || t.startsWith('add ')) && isSafeToExpand(b, t);
         });
         if (addBtn) {
           try {
@@ -600,14 +614,14 @@ class ContentScriptController {
             const bText = (b.textContent || '').trim().toLowerCase();
             const autoId = (b.getAttribute('data-automation-id') || '').toLowerCase();
             const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-            return (
+            const isAddMatch =
               bText === 'add' ||
               bText === '+ add' ||
               bText === '(+) add' ||
               bText.startsWith('add ') ||
               autoId.includes('add') ||
-              aria.includes('add')
-            );
+              aria.includes('add');
+            return isAddMatch && isSafeToExpand(b, bText);
           });
 
           if (addBtn && this.scanner.isVisible(addBtn)) {
@@ -629,7 +643,8 @@ class ContentScriptController {
       )
     );
     for (const btn of workdayAddButtons) {
-      if (this.scanner.isVisible(btn)) {
+      const btnText = (btn.textContent || '').trim().toLowerCase();
+      if (this.scanner.isVisible(btn) && isSafeToExpand(btn, btnText)) {
         const parentSection =
           btn.closest('fieldset, section, [data-automation-id*="panel"]') || btn.parentElement?.parentElement;
         if (parentSection) {

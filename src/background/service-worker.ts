@@ -73,6 +73,7 @@ class BackgroundService {
         const session = await this.getSession(tabId);
         session.status = 'READY';
         session.securityTrigger = undefined;
+        (session as any).securityDismissed = true;
         await storage.saveSession(session);
         try {
           chrome.tabs.sendMessage(tabId, {
@@ -571,6 +572,9 @@ class BackgroundService {
 
   private async handleSecurityDetected(tabId: number, trigger: { type: any; message: string }): Promise<void> {
     const session = await this.getSession(tabId);
+    if ((session as any).securityDismissed) {
+      return;
+    }
     session.status = 'PAUSED_SECURITY';
     session.securityTrigger = {
       type: trigger.type,
@@ -584,8 +588,8 @@ class BackgroundService {
   private async startAutofill(tabId: number, fillPayload?: TriggerFillPayload): Promise<{ success: boolean; message?: string }> {
     const session = await this.getSession(tabId);
 
-    // Rule 9 & 10: Security challenges must NEVER be bypassed!
-    if (session.status === 'PAUSED_SECURITY') {
+    // Rule 9 & 10: Security challenges must NEVER be bypassed unless user explicitly dismissed
+    if (session.status === 'PAUSED_SECURITY' && !(session as any).securityDismissed) {
       logger.warn('ServiceWorker', `Cannot start autofill on tab ${tabId}: active security challenge.`);
       return {
         success: false,

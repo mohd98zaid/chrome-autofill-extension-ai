@@ -44,7 +44,14 @@ export const Popup: React.FC = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('profile_default');
   const [showSelectCVModal, setShowSelectCVModal] = useState(false);
-  const [alwaysAskCV, setAlwaysAskCV] = useState(true);
+  const [alwaysAskCV, setAlwaysAskCV] = useState(false);
+
+  const updateAlwaysAskCV = (val: boolean) => {
+    setAlwaysAskCV(val);
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      chrome.storage.local.set({ always_ask_cv: val });
+    }
+  };
 
   // JSON Import & Export states
   const popupJsonFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -59,8 +66,11 @@ export const Popup: React.FC = () => {
     try {
       // 1. Immediate restore from chrome.storage.local
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-        chrome.storage.local.get(['user_profile', 'cv_profiles', 'active_profile_id'], (res) => {
+        chrome.storage.local.get(['user_profile', 'cv_profiles', 'active_profile_id', 'always_ask_cv'], (res) => {
           if (chrome.runtime?.lastError || !res) return;
+          if (typeof res.always_ask_cv === 'boolean') {
+            setAlwaysAskCV(res.always_ask_cv);
+          }
           const list = (Array.isArray(res.cv_profiles) && res.cv_profiles.length > 0)
             ? (res.cv_profiles as UserProfile[])
             : [];
@@ -175,7 +185,7 @@ export const Popup: React.FC = () => {
   };
 
   const handleStartAutofill = () => {
-    if (alwaysAskCV && profiles.length > 0) {
+    if (alwaysAskCV && profiles.length > 1) {
       setShowSelectCVModal(true);
     } else {
       executeAutofillWithProfile(selectedProfileId || profile?.id);
@@ -187,14 +197,38 @@ export const Popup: React.FC = () => {
     setStatusMessage(null);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) return;
+      if (!tab?.id) {
+        setFilling(false);
+        setStatusMessage('No active browser tab found.');
+        return;
+      }
+
+      // If pending fields are 0, ensure a fresh scan is run first to detect any loaded inputs
+      if ((session?.pendingFields?.length || 0) === 0) {
+        await new Promise((resolve) => {
+          chrome.tabs.sendMessage(
+            tab.id!,
+            { type: 'BG_TRIGGER_SCAN', source: 'popup', timestamp: new Date().toISOString() },
+            (scanRes) => {
+              if (chrome.runtime?.lastError) {
+                resolve(null);
+                return;
+              }
+              if (scanRes?.data?.fields) {
+                setSession((prev) => (prev ? { ...prev, pendingFields: scanRes.data.fields } : prev));
+              }
+              resolve(null);
+            }
+          );
+        });
+      }
 
       chrome.runtime.sendMessage(
         {
           type: 'UI_START_AUTOFILL',
           source: 'popup',
           tabId: tab.id,
-          payload: { profileId },
+          payload: { profileId, forceAll: true },
           timestamp: new Date().toISOString()
         },
         (res) => {
@@ -896,18 +930,28 @@ export const Popup: React.FC = () => {
       <footer className="pt-2 border-t border-slate-200 space-y-2">
         <button
           onClick={handleStartAutofill}
-          disabled={filling || (session?.pendingFields?.length === 0)}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg font-medium text-xs shadow-sm flex items-center justify-center space-x-2 transition-all"
+          disabled={filling}
+          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg font-medium text-xs shadow-sm flex items-center justify-center space-x-2 transition-all cursor-pointer"
         >
           {filling ? (
             <>
               <RefreshCw className="w-4 h-4 animate-spin" />
               <span>Filling & Verifying...</span>
             </>
+          ) : (session?.pendingFields?.length || 0) > 0 ? (
+            <>
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Fill Detected Fields ({session?.pendingFields?.length})</span>
+            </>
+          ) : (session?.filledFields?.length || 0) > 0 ? (
+            <>
+              <RefreshCw className="w-4 h-4" />
+              <span>Re-fill Form Fields</span>
+            </>
           ) : (
             <>
               <CheckCircle2 className="w-4 h-4" />
-              <span>Fill Detected Fields</span>
+              <span>Scan & Fill Fields</span>
             </>
           )}
         </button>
@@ -1345,7 +1389,7 @@ export const Popup: React.FC = () => {
                 type="checkbox"
                 id="alwaysAsk"
                 checked={alwaysAskCV}
-                onChange={(e) => setAlwaysAskCV(e.target.checked)}
+                onChange={(e) => updateAlwaysAskCV(e.target.checked)}
                 className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
               />
               <label htmlFor="alwaysAsk" className="text-[11px] text-slate-600">
