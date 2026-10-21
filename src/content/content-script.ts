@@ -17,6 +17,7 @@ import { resolveFieldValue, interpolateCoverLetter } from './resolver/field-reso
 import { cleanAnswerText } from '../utils/text-cleaner';
 import { JobPortalDetector } from './crawler/job-portal-detector';
 import { CrawlerOverlay } from './crawler/crawler-overlay';
+import { MultiStepWizardRunner } from './crawler/multi-step-runner';
 import { CrawlerSession } from '../types/crawler';
 import { logger } from '../utils/logger';
 
@@ -104,7 +105,7 @@ class ContentScriptController {
         return this.scanAndNotify(false);
 
       case 'BG_TRIGGER_FILL':
-        return this.executeFill(message.payload as { profile: UserProfile; settings: Settings; fillPayload?: TriggerFillPayload });
+        return this.executeFillWithMultiStep(message.payload as { profile: UserProfile; settings: Settings; fillPayload?: TriggerFillPayload });
 
       case 'BG_HIGHLIGHT_FIELD':
         return this.highlightField((message.payload as { fieldId: string }).fieldId);
@@ -232,6 +233,61 @@ class ContentScriptController {
     });
 
     return payload;
+  }
+
+  private async executeFillWithMultiStep(payload: {
+    profile: UserProfile;
+    settings: Settings;
+    fillPayload?: TriggerFillPayload;
+  }): Promise<{ filledCount: number; records: FilledFieldRecord[]; lastStageReached?: boolean }> {
+    // 1. If no fields currently detected on page, attempt to click "Apply" / "Easy Apply"
+    const initialScan = this.scanner.scan();
+    if (initialScan.fields.length === 0) {
+      await MultiStepWizardRunner.clickInitialApplyButton();
+    }
+
+    let totalFilled = 0;
+    const allRecords: FilledFieldRecord[] = [];
+    const maxSteps = 10;
+    let stepCount = 0;
+
+    while (stepCount < maxSteps) {
+      stepCount++;
+      logger.info('ContentScript', `Processing application wizard step ${stepCount}...`);
+
+      const res = await this.executeFill(payload);
+      totalFilled += res.filledCount;
+      allRecords.push(...res.records);
+
+      await new Promise((r) => setTimeout(r, 600));
+
+      const stepButton = MultiStepWizardRunner.findStepButton();
+
+      if (stepButton.type === 'final') {
+        // Last stage reached! STOP automation and wait for user intervention
+        logger.info('ContentScript', `Final submission stage reached with button: "${stepButton.label}". Pausing for user review.`);
+
+        // Listen for user submission confirmation to auto-advance crawler
+        MultiStepWizardRunner.listenForSubmissionSuccess(() => {
+          chrome.runtime.sendMessage({
+            type: 'CRAWLER_NEXT_JOB',
+            source: 'content',
+            timestamp: new Date().toISOString()
+          });
+        });
+
+        return { filledCount: totalFilled, records: allRecords, lastStageReached: true };
+      } else if (stepButton.type === 'intermediate' && stepButton.button) {
+        logger.info('ContentScript', `Advancing intermediate step with button: "${stepButton.label}"`);
+        stepButton.button.click();
+        await new Promise((r) => setTimeout(r, 1500));
+      } else {
+        // No further step buttons found (single-page form or completed)
+        break;
+      }
+    }
+
+    return { filledCount: totalFilled, records: allRecords };
   }
 
   private async executeFill(payload: {

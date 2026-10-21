@@ -1,4 +1,5 @@
 import { CrawlerSession, JobListingItem, StartCrawlPayload } from '../../types/crawler';
+import { storage } from '../../storage';
 import { logger } from '../../utils/logger';
 
 export class BatchQueueManager {
@@ -180,12 +181,15 @@ export class BatchQueueManager {
     chrome.tabs.onUpdated.addListener(listener);
   }
 
-  private executeAutofillInTab(tabId: number): void {
+  private async executeAutofillInTab(tabId: number): Promise<void> {
     if (!this.session.active) return;
 
     this.session.status = 'filling';
-    this.persistSession();
+    await this.persistSession();
     this.broadcastState();
+
+    const profile = await storage.getProfile();
+    const settings = await storage.getSettings();
 
     // Ensure content script is ready and trigger autofill
     chrome.tabs.sendMessage(
@@ -193,7 +197,7 @@ export class BatchQueueManager {
       {
         type: 'BG_TRIGGER_FILL',
         source: 'background',
-        payload: { forceAll: true },
+        payload: { profile, settings, fillPayload: { forceAll: true } },
         timestamp: new Date().toISOString()
       },
       (_res) => {
