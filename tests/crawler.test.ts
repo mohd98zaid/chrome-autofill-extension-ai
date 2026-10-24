@@ -188,4 +188,52 @@ describe('Batch Queue Manager & Kill Switch', () => {
     expect(state.status).toBe('paused_security');
     expect(state.securityTrigger).toBe('turnstile');
   });
+
+  it('tracks seen jobs with 30-day TTL and deduplicates queue', async () => {
+    expect(queueManager.isJobSeen('job_101')).toBe(false);
+    queueManager.markJobSeen('job_101');
+    expect(queueManager.isJobSeen('job_101')).toBe(true);
+
+    // Mock content script returning both a seen job and a fresh job
+    const mockJobs: JobListingItem[] = [
+      { id: 'job_101', title: 'Job 101', company: 'Acme', url: 'https://example.com/job/101', platform: 'generic', status: 'pending' },
+      { id: 'job_102', title: 'Job 102', company: 'Globex', url: 'https://example.com/job/102', platform: 'generic', status: 'pending' }
+    ];
+
+    (chrome.tabs.sendMessage as any).mockImplementation((_tabId: number, msg: any, cb: any) => {
+      if (msg.type === 'CONTENT_EXTRACT_JOBS') {
+        cb({ success: true, data: { jobs: mockJobs } });
+      } else {
+        cb({ success: true });
+      }
+    });
+
+    const res = await queueManager.startCrawl(100, { maxJobs: 5, mode: 'new_tab' });
+    expect(res.success).toBe(true);
+    // Only 1 job should be enqueued (job_101 skipped)
+    expect(res.jobCount).toBe(1);
+    expect(queueManager.getState().totalJobs).toBe(1);
+    expect(queueManager.getState().jobs[0].id).toBe('job_102');
+  });
+
+  it('aborts crawl gracefully if all detected jobs were already seen within 30 days', async () => {
+    queueManager.markJobSeen('job_already_1');
+    queueManager.markJobSeen('job_already_2');
+
+    const mockJobs: JobListingItem[] = [
+      { id: 'job_already_1', title: 'Job 1', company: 'Acme', url: 'https://example.com/job/a1', platform: 'generic', status: 'pending' },
+      { id: 'job_already_2', title: 'Job 2', company: 'Globex', url: 'https://example.com/job/a2', platform: 'generic', status: 'pending' }
+    ];
+
+    (chrome.tabs.sendMessage as any).mockImplementation((_tabId: number, msg: any, cb: any) => {
+      if (msg.type === 'CONTENT_EXTRACT_JOBS') {
+        cb({ success: true, data: { jobs: mockJobs } });
+      }
+    });
+
+    const res = await queueManager.startCrawl(100);
+    expect(res.success).toBe(false);
+    expect(res.jobCount).toBe(0);
+    expect(res.message).toContain('already been processed/applied within the last 30 days');
+  });
 });

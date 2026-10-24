@@ -241,7 +241,9 @@ class BackgroundService {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
-        const filtered = existingQA.filter((q) => q.id !== qaId);
+        const filtered = existingQA.filter(
+          (q) => q.id !== qaId && q.question.toLowerCase().trim() !== item.question.toLowerCase().trim()
+        );
         const updatedProfile = {
           ...currentProfile,
           customQA: [updatedItem, ...filtered],

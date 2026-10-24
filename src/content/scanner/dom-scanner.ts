@@ -57,7 +57,7 @@ export class DOMScanner {
       '#turnstile-wrapper:not([data-size="invisible"])'
     ].join(',');
 
-    const candidates = root.querySelectorAll<HTMLElement>(captchaSelector);
+    const candidates = this.queryDeep(root, captchaSelector);
     for (const el of Array.from(candidates)) {
       // 1. Ignore background badge containers and explicitly hidden elements
       if (el.classList.contains('grecaptcha-badge') || el.closest('.grecaptcha-badge')) continue;
@@ -118,8 +118,10 @@ export class DOMScanner {
     }
 
     // Check for OTP inputs
-    const otpInput = root.querySelector('input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="2fa" i], input[id*="otp" i]');
-    if (otpInput && this.isVisible(otpInput as HTMLElement)) {
+    const otpSelector = 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="2fa" i], input[id*="otp" i]';
+    const otpCandidates = this.queryDeep(root, otpSelector);
+    const otpInput = otpCandidates.find((el) => this.isVisible(el));
+    if (otpInput) {
       return {
         type: 'otp',
         message: 'One-Time Password (OTP) verification field detected. Automation paused.'
@@ -140,8 +142,9 @@ export class DOMScanner {
       '.stripe-element',
       '#card-element'
     ].join(',');
-    const paymentEl = root.querySelector<HTMLElement>(paymentSelector);
-    if (paymentEl && this.isVisible(paymentEl)) {
+    const paymentCandidates = this.queryDeep(root, paymentSelector);
+    const paymentEl = paymentCandidates.find((el) => this.isVisible(el));
+    if (paymentEl) {
       return {
         type: 'payment',
         message: 'Payment / card details form detected. Automation paused.'
@@ -149,8 +152,9 @@ export class DOMScanner {
     }
 
     // Check for password challenge fields (Rule 9: never autofill password fields)
-    const passwordInput = root.querySelector<HTMLInputElement>('input[type="password"]');
-    if (passwordInput && this.isVisible(passwordInput)) {
+    const passwordCandidates = this.queryDeep(root, 'input[type="password"]');
+    const passwordInput = passwordCandidates.find((el) => this.isVisible(el));
+    if (passwordInput) {
       return {
         type: 'password',
         message: 'Password / security authentication field detected. Automation paused.'
@@ -158,6 +162,40 @@ export class DOMScanner {
     }
 
     return undefined;
+  }
+
+  /**
+   * Deep query helper: recursively traverses light DOM, open Shadow DOM, and accessible same-origin iframes.
+   */
+  public queryDeep(root: ParentNode, selector: string): HTMLElement[] {
+    const results: HTMLElement[] = [];
+    const walk = (node: ParentNode) => {
+      try {
+        const found = node.querySelectorAll<HTMLElement>(selector);
+        results.push(...Array.from(found));
+      } catch {}
+      const children = node.querySelectorAll('*');
+      for (const el of Array.from(children)) {
+        if (el.shadowRoot) {
+          walk(el.shadowRoot);
+        }
+      }
+    };
+    walk(root);
+
+    // Recursively traverse accessible same-origin iframes
+    const iframes = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
+    for (const frame of iframes) {
+      try {
+        if (frame.contentDocument && frame.contentDocument.body) {
+          results.push(...this.queryDeep(frame.contentDocument.body, selector));
+        }
+      } catch {
+        // Cross-origin iframe; handled by its own content script via all_frames: true
+      }
+    }
+
+    return results;
   }
 
   private discoverElements(root: ParentNode): HTMLElement[] {
@@ -176,31 +214,7 @@ export class DOMScanner {
       '.chip-input'
     ].join(',');
 
-    const results: HTMLElement[] = [];
-    const elements = Array.from(root.querySelectorAll<HTMLElement>(selector));
-    results.push(...elements);
-
-    // Recursively traverse open shadow roots
-    const allNodes = root.querySelectorAll('*');
-    for (const node of Array.from(allNodes)) {
-      if (node.shadowRoot) {
-        results.push(...this.discoverElements(node.shadowRoot));
-      }
-    }
-
-    // Recursively traverse accessible same-origin iframes
-    const iframes = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
-    for (const frame of iframes) {
-      try {
-        if (frame.contentDocument && frame.contentDocument.body) {
-          results.push(...this.discoverElements(frame.contentDocument.body));
-        }
-      } catch {
-        // Cross-origin iframe; handled by its own content script via all_frames: true
-      }
-    }
-
-    return results;
+    return this.queryDeep(root, selector);
   }
 
   public isVisible(element: HTMLElement): boolean {
@@ -342,7 +356,7 @@ export class DOMScanner {
     return 'unknown';
   }
 
-  private findLabelText(element: HTMLElement): string | undefined {
+  public findLabelText(element: HTMLElement): string | undefined {
     const id = element.getAttribute('id');
 
     // 1. Explicit <label for="id">
@@ -462,7 +476,7 @@ export class DOMScanner {
   }
 
 
-  private findQuestionPrompt(element: HTMLElement, currentLabel?: string): string | undefined {
+  public findQuestionPrompt(element: HTMLElement, currentLabel?: string): string | undefined {
     // 1. Fieldset legend
     const fieldset = element.closest('fieldset');
     if (fieldset) {

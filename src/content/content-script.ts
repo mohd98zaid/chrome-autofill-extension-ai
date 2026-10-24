@@ -88,6 +88,85 @@ class ContentScriptController {
         this.abortCurrentOperation('Broadcast abort from top frame');
       }
     });
+
+    this.setupRealtimeAutoLearning();
+  }
+
+  /**
+   * Real-Time User Learning Loop (Reverse-Engineered from Jobs Co-Pilot / JobPilot pattern):
+   * When a user manually fills in an unanswered question, corrects an answer, or selects
+   * a choice on the page, the extension captures { question, answer } and permanently
+   * records it into customQA so the user is never asked again.
+   */
+  private setupRealtimeAutoLearning(): void {
+    const handleUserEdit = (e: Event) => {
+      // 1. Only capture genuine human user interactions
+      if (!e.isTrusted) return;
+      // 2. Do not record while automated filling is executing
+      if (this.isFilling) return;
+
+      const target = e.target as HTMLElement | null;
+      if (!target || !(target instanceof HTMLElement)) return;
+
+      const tag = target.tagName.toLowerCase();
+      if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') return;
+
+      const inputEl = target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+
+      // 3. Ignore password, file, hidden, or submit inputs (safety rule)
+      const type = (inputEl.getAttribute('type') || '').toLowerCase();
+      if (type === 'password' || type === 'file' || type === 'hidden' || type === 'submit' || type === 'button') {
+        return;
+      }
+
+      // 4. Extract user's value
+      let val = '';
+      if (inputEl instanceof HTMLSelectElement) {
+        val = inputEl.selectedOptions[0]?.text?.trim() || inputEl.value?.trim();
+      } else if (type === 'checkbox') {
+        const chk = inputEl as HTMLInputElement;
+        const lbl = this.scanner.findLabelText(chk) || '';
+        val = chk.checked ? (lbl || 'Yes') : 'No';
+      } else if (type === 'radio') {
+        const rad = inputEl as HTMLInputElement;
+        if (!rad.checked) return;
+        val = this.scanner.findLabelText(rad) || rad.value || 'Yes';
+      } else {
+        val = inputEl.value?.trim() || '';
+      }
+
+      if (!val || val.length < 1) return;
+
+      // 5. Discover question prompt or label
+      const labelText = this.scanner.findLabelText(inputEl);
+      const prompt = this.scanner.findQuestionPrompt(inputEl, labelText) || labelText;
+
+      if (!prompt || prompt.trim().length < 4) return;
+
+      // 6. Skip standard personal identity fields (name, email, phone) which are managed in Profile
+      if (/^(first\s*name|last\s*name|full\s*name|email|phone|mobile|tel)$/i.test(prompt.trim())) {
+        return;
+      }
+
+      const detectedCompany = this.jdExtractor.findCompany() || 'learned';
+
+      logger.info('ContentScript', `[Auto-Learn] Captured manual user answer for "${prompt.slice(0, 30)}..." => "${val.slice(0, 30)}..."`);
+
+      // Persist to user customQA memory bank via background service worker
+      this.safeSendMessage({
+        type: 'UI_SAVE_QA',
+        source: 'content',
+        payload: {
+          question: prompt.trim(),
+          answer: val.trim(),
+          tags: [detectedCompany]
+        },
+        timestamp: new Date().toISOString()
+      });
+    };
+
+    // Listen on change (selects, radios, checkboxes, blur commits)
+    window.addEventListener('change', handleUserEdit, { passive: true, capture: true });
   }
 
   public abortCurrentOperation(reason: string = 'User requested stop'): void {

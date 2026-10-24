@@ -4,7 +4,7 @@ export class JDExtractor {
   public extract(root: Document = document): Partial<JobRecord> | null {
     // 1. Try structured JSON-LD first (highest precision)
     const jsonLdJob = this.extractFromJSONLD(root);
-    if (jsonLdJob && jsonLdJob.title && jsonLdJob.company) return jsonLdJob;
+    if (jsonLdJob && jsonLdJob.title) return jsonLdJob;
 
     // 2. Try common Job Board description containers
     const domJob = this.extractFromDOM(root);
@@ -43,17 +43,29 @@ export class JDExtractor {
         const items = Array.isArray(data) ? data : [data];
         for (const item of items) {
           if (item['@type'] === 'JobPosting') {
-            const company = typeof item.hiringOrganization === 'object' ? item.hiringOrganization?.name || '' : '';
+            const rawOrg = item.hiringOrganization;
+            const company =
+              typeof rawOrg === 'object' && rawOrg !== null
+                ? rawOrg.name || ''
+                : typeof rawOrg === 'string'
+                ? rawOrg
+                : '';
             const title = item.title || '';
             const description = cleanHtmlToText(item.description || '');
-            const location = typeof item.jobLocation === 'object' ? item.jobLocation?.address?.addressLocality || '' : '';
+            const location =
+              typeof item.jobLocation === 'object' && item.jobLocation !== null
+                ? item.jobLocation?.address?.addressLocality || item.jobLocation?.address?.streetAddress || ''
+                : '';
+
+            const resolvedCompany = this.cleanCompanyName(company) || this.findCompany(root) || 'Hiring Team';
+            const resolvedTitle = this.cleanJobTitle(title) || this.findJobTitle(root) || 'Target Role';
 
             return {
               id: `job_${Date.now()}`,
               url: window.location.href,
               domain: window.location.hostname,
-              company: this.cleanCompanyName(company) || this.findCompany(root),
-              title: this.cleanJobTitle(title) || this.findJobTitle(root),
+              company: resolvedCompany,
+              title: resolvedTitle,
               location,
               description,
               requirements: this.extractBulletPoints(description),
@@ -363,8 +375,11 @@ export class JDExtractor {
 
   public cleanJobTitle(raw: string): string {
     let t = raw.trim();
-    // Remove ATS branding and suffixes
-    t = t.replace(/\s*[-|–•]\s*(?:Breezy\s*HR|Workday|Greenhouse|Lever|SmartRecruiters|Taleo|TalentRecruit|Jobvite|Careers).*$/i, '');
+    // Remove ATS branding and major job board suffixes (LinkedIn, Indeed, ZipRecruiter, Glassdoor, etc.)
+    t = t.replace(
+      /\s*[-|–—•]\s*(?:ZipRecruiter|Indeed|LinkedIn|Glassdoor|Monster|Handshake|Wellfound|AngelList|CareerBuilder|FlexJobs|Workday|Greenhouse|Lever|Ashby|Breezy\s*HR|SmartRecruiters|Taleo|TalentRecruit|Jobvite|Careers).*$/i,
+      ''
+    );
     // Remove "at Company" suffix e.g. "Engineer at Acme" -> "Engineer"
     t = t.replace(/\s+at\s+[\w\s&.,-]+$/i, '');
     // Remove " - Company" suffix

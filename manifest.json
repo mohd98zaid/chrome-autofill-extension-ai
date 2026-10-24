@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs"
+    "tabs",
+    "sidePanel"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -15,6 +16,9 @@
   "action": {
     "default_popup": "src/popup/index.html",
     "default_title": "AI Job Application Assistant"
+  },
+  "side_panel": {
+    "default_path": "src/popup/index.html"
   },
   "options_ui": {
     "page": "src/options/index.html",

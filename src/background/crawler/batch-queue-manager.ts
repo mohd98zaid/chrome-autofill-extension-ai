@@ -14,6 +14,10 @@ export class BatchQueueManager {
     autoFillDelayMs: 2000
   };
 
+  private seenJobIds: Map<string, number> = new Map();
+  private static readonly MAX_SEEN_IDS = 3000;
+  private static readonly SEEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30-day retention
+
   constructor() {
     this.restoreFromStorage();
   }
@@ -21,7 +25,11 @@ export class BatchQueueManager {
   private async restoreFromStorage(): Promise<void> {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-        chrome.storage.local.get(['crawler_session'], (res: Record<string, any>) => {
+        chrome.storage.local.get(['crawler_session', 'seen_job_ids'], (res: Record<string, any>) => {
+          if (res?.seen_job_ids) {
+            this.seenJobIds = new Map(Object.entries(res.seen_job_ids));
+            this.evictExpiredSeenJobs();
+          }
           if (res?.crawler_session) {
             this.session = res.crawler_session as CrawlerSession;
             logger.info('BatchQueueManager', 'Restored crawler session from storage', {
@@ -35,6 +43,58 @@ export class BatchQueueManager {
     } catch (err) {
       logger.warn('BatchQueueManager', 'Failed to restore session from storage', { error: String(err) });
     }
+  }
+
+  public evictExpiredSeenJobs(): void {
+    const now = Date.now();
+    for (const [jobId, ts] of this.seenJobIds) {
+      if (now - ts > BatchQueueManager.SEEN_TTL_MS) {
+        this.seenJobIds.delete(jobId);
+      }
+    }
+    if (this.seenJobIds.size > BatchQueueManager.MAX_SEEN_IDS) {
+      const sortedByAge = Array.from(this.seenJobIds.entries()).sort((a, b) => a[1] - b[1]);
+      const excessCount = this.seenJobIds.size - BatchQueueManager.MAX_SEEN_IDS;
+      for (let i = 0; i < excessCount; i++) {
+        this.seenJobIds.delete(sortedByAge[i][0]);
+      }
+    }
+  }
+
+  public isJobSeen(jobIdOrUrl: string): boolean {
+    if (!jobIdOrUrl || !this.seenJobIds.has(jobIdOrUrl)) return false;
+    const ts = this.seenJobIds.get(jobIdOrUrl);
+    if (ts && Date.now() - ts > BatchQueueManager.SEEN_TTL_MS) {
+      this.seenJobIds.delete(jobIdOrUrl);
+      return false;
+    }
+    return true;
+  }
+
+  public markJobSeen(jobIdOrUrl: string): void {
+    if (!jobIdOrUrl) return;
+    this.seenJobIds.set(jobIdOrUrl, Date.now());
+    this.evictExpiredSeenJobs();
+    this.persistSeenJobs();
+  }
+
+  public async persistSeenJobs(): Promise<void> {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.set({ seen_job_ids: Object.fromEntries(this.seenJobIds) });
+      }
+    } catch (err) {
+      logger.warn('BatchQueueManager', 'Failed to persist seen jobs', { error: String(err) });
+    }
+  }
+
+  public getSeenJobCount(): number {
+    return this.seenJobIds.size;
+  }
+
+  public clearSeenJobs(): void {
+    this.seenJobIds.clear();
+    this.persistSeenJobs();
   }
 
   private async persistSession(): Promise<void> {
@@ -91,6 +151,20 @@ export class BatchQueueManager {
       };
     }
 
+    this.evictExpiredSeenJobs();
+    const freshJobs = detectedJobs.filter((j) => !this.isJobSeen(j.id) && !this.isJobSeen(j.url));
+
+    if (freshJobs.length === 0) {
+      logger.info('BatchQueueManager', 'All detected jobs on page have already been seen/applied within 30 days', {
+        detected: detectedJobs.length
+      });
+      return {
+        success: false,
+        jobCount: 0,
+        message: `All ${detectedJobs.length} detected jobs on this page have already been processed/applied within the last 30 days.`
+      };
+    }
+
     // 2. Initialize queue
     this.session = {
       active: true,
@@ -98,8 +172,8 @@ export class BatchQueueManager {
       searchTabId,
       workerTabId: undefined,
       currentJobIndex: 0,
-      totalJobs: detectedJobs.length,
-      jobs: detectedJobs,
+      totalJobs: freshJobs.length,
+      jobs: freshJobs,
       mode,
       maxBatchSize: maxJobs,
       autoFillDelayMs: 2000
@@ -111,10 +185,13 @@ export class BatchQueueManager {
     // 3. Begin processing the first job
     this.processCurrentJob();
 
+    const skippedCount = detectedJobs.length - freshJobs.length;
+    const countMsg = skippedCount > 0 ? `Found ${freshJobs.length} new jobs (${skippedCount} already-seen skipped). Starting sequential autofill.` : `Found ${freshJobs.length} jobs. Starting sequential autofill.`;
+
     return {
       success: true,
-      jobCount: detectedJobs.length,
-      message: `Found ${detectedJobs.length} jobs. Starting sequential autofill.`
+      jobCount: freshJobs.length,
+      message: countMsg
     };
   }
 
@@ -236,6 +313,8 @@ export class BatchQueueManager {
     if (currentJob) {
       currentJob.status = action;
       if (errorMessage) currentJob.errorMessage = errorMessage;
+      if (currentJob.id) this.markJobSeen(currentJob.id);
+      if (currentJob.url) this.markJobSeen(currentJob.url);
     }
 
     // Clean up worker tab in new_tab mode

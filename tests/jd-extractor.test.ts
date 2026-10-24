@@ -147,4 +147,32 @@ describe('JDExtractor', () => {
     expect(job?.title).toBe('Senior AI Researcher');
     expect(job?.company).toBe('Nvidia');
   });
+
+  it('handles JSON-LD where hiringOrganization is a direct string', () => {
+    delete (window as any).location;
+    window.location = new URL('https://jobs.example.com/posting/string-org') as any;
+
+    document.head.innerHTML = `
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "title": "Machine Learning Engineer",
+        "hiringOrganization": "OpenAI"
+      }
+      </script>
+    `;
+
+    const job = extractor.extract(document);
+    expect(job).not.toBeNull();
+    expect(job?.title).toBe('Machine Learning Engineer');
+    expect(job?.company).toBe('OpenAI');
+  });
+
+  it('cleans job titles by stripping major board suffixes (ZipRecruiter, LinkedIn, Indeed)', () => {
+    expect(extractor.cleanJobTitle('Lead Software Engineer | ZipRecruiter')).toBe('Lead Software Engineer');
+    expect(extractor.cleanJobTitle('Staff Data Scientist - Indeed')).toBe('Staff Data Scientist');
+    expect(extractor.cleanJobTitle('Frontend Developer - LinkedIn')).toBe('Frontend Developer');
+    expect(extractor.cleanJobTitle('AI Systems Architect | Glassdoor')).toBe('AI Systems Architect');
+  });
 });
