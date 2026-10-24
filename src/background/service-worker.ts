@@ -428,11 +428,12 @@ class BackgroundService {
 
         // Clean role
         let role = payload.role?.trim() || '';
+        role = role.replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '').trim();
         const genericRolePattern = /^(?:application|job\s*application|apply|target\s*role|open\s*position)$/i;
         if (!role || genericRolePattern.test(role)) {
           const session = tabId ? await this.getSession(tabId) : null;
           if (session?.jobDetails?.title && !genericRolePattern.test(session.jobDetails.title)) {
-            role = session.jobDetails.title;
+            role = session.jobDetails.title.replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '').trim();
           }
         }
         if (!role) role = 'Open Position';

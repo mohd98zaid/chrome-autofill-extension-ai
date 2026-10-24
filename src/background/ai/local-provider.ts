@@ -270,10 +270,12 @@ export class LocalAIProvider implements AIProvider {
       req.company && !/^(?:application|job\s*application|apply|careers?|workday|lever|greenhouse|ashby)$/i.test(req.company)
         ? req.company
         : 'Hiring Team';
-    const role =
-      req.role && !/^(?:application|apply|open\s*position|target\s*role|job\s*application)$/i.test(req.role)
-        ? req.role
-        : 'Open Position';
+
+    let role = (req.role || 'Open Position').trim();
+    role = role.replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '').trim();
+    if (!role || /^(?:application|apply|open\s*position|target\s*role|job\s*application)$/i.test(role)) {
+      role = 'Open Position';
+    }
 
     // Parse profile evidence components cleanly
     const rawEvidence = (req.profileEvidence || []).filter((e) => {
@@ -301,40 +303,79 @@ export class LocalAIProvider implements AIProvider {
       if (skillItem) skillsSnippet = skillItem;
     }
 
+    // Select top 5-6 skills max (never dump 30+ skills)
+    const topSkillsList = skillsSnippet
+      ? skillsSnippet.split(/,\s*|\s*·\s*/).map((s) => s.trim()).filter((s) => s.length > 1)
+      : [];
+    const curatedSkills = topSkillsList.slice(0, 5).join(', ');
+
+    // Extract clean role, company, and primary highlight without dumping raw bullet characters
+    let expRoleCompany = '';
+    let expHighlight = '';
+    if (experienceSnippet) {
+      const atIdx = experienceSnippet.indexOf(' at ');
+      if (atIdx !== -1) {
+        const colonIdx = experienceSnippet.indexOf(':', atIdx);
+        if (colonIdx !== -1) {
+          expRoleCompany = experienceSnippet.substring(0, colonIdx).trim();
+          const rest = experienceSnippet
+            .substring(colonIdx + 1)
+            .replace(/[◆•\*\t\r\n]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const firstSentence = rest.split(/(?<=\.)\s+/)[0];
+          if (firstSentence && firstSentence.length > 20 && firstSentence.length < 180) {
+            expHighlight = firstSentence.trim();
+          }
+        } else {
+          expRoleCompany = experienceSnippet.split(/[:\n]/)[0].trim();
+        }
+      } else {
+        expRoleCompany = experienceSnippet.split(/[:\n]/)[0].trim();
+      }
+      expRoleCompany = expRoleCompany.replace(/[◆•\*\(\)]/g, '').trim();
+    }
+
     let letter = '';
     if (req.predefinedTemplate && req.predefinedTemplate.trim().length > 10) {
       letter = req.predefinedTemplate
         .replace(/\{(?:company|companyName|organization)\}/gi, company)
         .replace(/\{(?:role|jobTitle|title|position|post)\}/gi, role)
         .replace(/\{(?:name|candidateName|fullName|applicantName)\}/gi, candidateName)
-        .replace(/\{(?:skills|keySkills|technologies)\}/gi, skillsSnippet || 'domain and technical expertise');
+        .replace(/\{(?:skills|keySkills|technologies)\}/gi, curatedSkills || 'domain and technical expertise');
 
       if (!letter.includes(candidateName) && candidateName !== 'Applicant') {
         letter = `${letter.trim()}\n\nSincerely,\n${candidateName}`;
       }
     } else {
       const jdOpening = req.jdText || req.jobDescription
-        ? ` Having closely reviewed your job description, I am very excited about the opportunity to contribute to your team's mission and engineering challenges.`
+        ? ` Having closely reviewed your job requirements, I am very excited about the opportunity to contribute to your team's mission and engineering challenges.`
         : '';
 
-      const p1 = `Dear Hiring Team at ${company},\n\nI am writing to express my strong interest in the ${role} position.${jdOpening}`;
+      const p1 = `Dear Hiring Team at ${company},\n\nI am writing to express my strong enthusiasm for the ${role} position at ${company}.${jdOpening}`;
 
       let p2 = '';
-      if (experienceSnippet && skillsSnippet) {
-        p2 = `With proven experience (${experienceSnippet}), I have developed strong competencies in ${skillsSnippet}. I take pride in building scalable, reliable solutions and translating complex requirements into well-engineered systems.`;
-      } else if (experienceSnippet) {
-        p2 = `With proven background (${experienceSnippet}), I bring a dedicated focus to engineering excellence, thoughtful architecture, and delivering tangible results.`;
-      } else if (skillsSnippet) {
-        p2 = `My technical background includes hands-on experience in ${skillsSnippet}. I focus on building high-quality, maintainable solutions and rapidly adapting to new technologies and workflows.`;
+      if (expRoleCompany) {
+        const cleanHighlight = expHighlight
+          ? ` Most recently, I ${expHighlight.replace(/^I\s+/i, '').replace(/^[A-Z][a-z]+ed\b/, (m) => m.toLowerCase())}`
+          : '';
+        p2 = `Throughout my time as a ${expRoleCompany}, I have focused on architecting resilient, scalable systems and driving tangible technical outcomes.${cleanHighlight}`;
       } else if (summarySnippet) {
-        p2 = `${summarySnippet} Throughout my career, I have maintained high technical standards, collaborative problem solving, and a commitment to continuous improvement.`;
+        p2 = summarySnippet.replace(/[◆•\*\t\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
       } else {
-        p2 = `Throughout my career, I have maintained high engineering standards, proactive communication, and a dedication to delivering impactful solutions in fast-paced technical environments.`;
+        p2 = `Throughout my career, I have dedicated myself to engineering excellence, thoughtful architecture, and translating complex challenges into robust, maintainable systems.`;
       }
 
-      const p3 = `I welcome the opportunity to discuss how my qualifications and background can support the goals of ${company}. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
+      let p3 = '';
+      if (curatedSkills) {
+        p3 = `My technical background is anchored in hands-on proficiency with ${curatedSkills}. I place a high premium on code quality, collaborative problem-solving, and building high-impact products that deliver sustained value.`;
+      } else {
+        p3 = `I bring a disciplined engineering approach, proactive cross-functional collaboration, and a passion for continuous technical growth to every project I undertake.`;
+      }
 
-      letter = `${p1}\n\n${p2}\n\n${p3}`;
+      const p4 = `I welcome the opportunity to discuss how my qualifications and background can support the goals of ${company}. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
+
+      letter = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}`;
     }
 
     const cleanedLetter = cleanAnswerText(letter, undefined, candidateName);

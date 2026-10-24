@@ -65,7 +65,7 @@ export class CloudAIAdapter implements AIProvider {
     return Boolean(this.config.apiKey && this.config.apiKey.length > 5);
   }
 
-  private async callChatCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
+  private async callChatCompletion(systemPrompt: string, userPrompt: string, maxTokens = 1024): Promise<string> {
     let baseUrl = (this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
     let url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 
@@ -108,7 +108,7 @@ export class CloudAIAdapter implements AIProvider {
               { role: 'user', content: userPrompt }
             ],
             temperature: 0.1,
-            max_tokens: 1024
+            max_tokens: maxTokens
           }),
           signal: controller.signal
         });
@@ -215,17 +215,27 @@ If options are provided in req.options, choose the best matching option(s). Outp
   }
 
   public async generateCoverLetter(req: AICoverLetterRequest): Promise<AICoverLetterResponse> {
-    const system = `Create a tailored professional cover letter in the first person for the supplied role and company.
-Use ONLY verified profile facts, approved resume evidence, and explicit job description information.
-If candidateName is provided, sign off with candidateName (never use placeholders like [Candidate Name] or [Your Name]).
-If company is provided, tailor specifically to that company (never use [Company Name]).
-If role is provided, tailor specifically to that role (never use [Job Title]).
-If predefinedTemplate is provided, use it as the foundational voice and structure, adapting it to match the role and job description.
-Never fabricate metrics or claim experience with technologies absent from evidence.
+    const cleanRole = (req.role || 'the open position')
+      .replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '')
+      .trim();
+
+    const system = `You write compelling, highly professional cover letters in the first person ("I", "my") grounded strictly in verified profile evidence and the target job.
+RULES:
+1. NEVER dump raw bullet points, symbols (like •, ◆, *), or put bulleted experience text inside parentheses. Write fluent, natural prose paragraphs.
+2. Select only the 5-6 most impactful, relevant technologies from the candidate's skills that best fit the company and role. Do NOT list dozens of skills.
+3. Clean role names (e.g. refer to "${cleanRole}" naturally rather than raw UI button text like "Join Creative Team").
+4. Structure into 3-4 cohesive, well-crafted paragraphs separated by double newlines (\n\n):
+   - Paragraph 1: Enthusiastic opening stating interest in the role at the target company and summary of seniority/background.
+   - Paragraph 2: Core architectural/engineering achievements and tangible impact from verified experience.
+   - Paragraph 3: Relevant technical expertise and why the candidate is drawn to the target company's mission.
+   - Paragraph 4: Confident, polite closing welcoming an interview, followed by a formal sign-off with the candidate's name.
+5. If candidateName is provided, sign off with candidateName (never use placeholders like [Candidate Name] or [Your Name]).
+6. If company is provided, tailor specifically to that company (never use [Company Name]).
+7. Never fabricate metrics or claim experience absent from evidence.
 Output JSON: { "coverLetter": string, "groundingStatus": "passed"|"failed", "unsupportedClaims": string[], "sourceRefs": string[] }`;
 
-    const user = JSON.stringify(req);
-    const raw = await this.callChatCompletion(system, user);
+    const user = JSON.stringify({ ...req, role: cleanRole });
+    const raw = await this.callChatCompletion(system, user, 4096);
     const parsed = parseJSONSafely(raw, { coverLetter: '', groundingStatus: 'passed', unsupportedClaims: [], sourceRefs: ['ai_generated'] });
     return {
       coverLetter: parsed.coverLetter || '',

@@ -684,12 +684,15 @@ class ContentScriptController {
               `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
               'Candidate';
             const primaryExp = profile.experiences?.[0];
-            const topSkills = profile.skills.slice(0, 6).map((s) => s.canonicalName).join(', ') || 'relevant skills';
+            const topSkills = profile.skills.slice(0, 5).map((s) => s.canonicalName).join(', ') || 'relevant skills';
+            const cleanRole = (detectedRole || 'open position')
+              .replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '')
+              .trim() || 'open position';
             const expSentence = primaryExp
-              ? `As a ${primaryExp.title} at ${primaryExp.company}${primaryExp.description ? ` (${primaryExp.description.slice(0, 160)}...)` : ''}`
+              ? `As a ${primaryExp.title} at ${primaryExp.company}`
               : (profile.summary || 'With extensive hands-on experience delivering high-quality solutions');
 
-            letterContent = `Dear Hiring Team at ${detectedCompany || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${detectedRole || 'open position'} role. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on solving complex challenges, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements.\n\nSincerely,\n${candidateName}`;
+            letterContent = `Dear Hiring Team at ${detectedCompany || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${cleanRole} position at ${detectedCompany || 'your organization'}. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on architecting resilient solutions, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to technical excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
           }
 
           targetValue = letterContent;
@@ -1511,6 +1514,10 @@ class ContentScriptController {
       `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
       '';
 
+    const cleanRole = (role || 'Target Role')
+      .replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '')
+      .trim() || 'Target Role';
+
     const evidence: string[] = [];
     if (candidateName) {
       evidence.push(`Applicant Name: ${candidateName}`);
@@ -1542,7 +1549,7 @@ class ContentScriptController {
             source: 'content',
             payload: {
               company: company || 'Hiring Team',
-              role: role || 'Target Role',
+              role: cleanRole,
               jobDescription: jdText || '',
               jdText: jdText || '',
               profileEvidence: evidence,
