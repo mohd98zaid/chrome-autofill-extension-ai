@@ -15,11 +15,57 @@ export class MultiStepWizardRunner {
   }
 
   /**
+   * Simulates full realistic user click chain (mousedown, mouseup, click)
+   * Essential for React 18/19 and Ember components (e.g. LinkedIn Artdeco buttons)
+   */
+  public static triggerRealClick(element: HTMLElement): void {
+    try {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch {}
+    try {
+      element.focus();
+    } catch {}
+
+    const mouseEvents = ['mousedown', 'mouseup', 'click'];
+    for (const eventType of mouseEvents) {
+      try {
+        const event = new MouseEvent(eventType, {
+          bubbles: true,
+          cancelable: true
+        });
+        element.dispatchEvent(event);
+      } catch {
+        try {
+          element.dispatchEvent(new Event(eventType, { bubbles: true, cancelable: true }));
+        } catch {}
+      }
+    }
+  }
+
+  /**
+   * Polls until application modal / dialog and its form fields render
+   */
+  public static async waitForModalToMount(maxWaitMs: number = 5000): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      const modal = document.querySelector('[role="dialog"], .jobs-easy-apply-modal, [class*="modal" i], form');
+      if (modal) {
+        const fields = modal.querySelectorAll('input:not([type="hidden"]), textarea, select, button[type="submit"]');
+        if (fields.length > 0) return true;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
+  }
+
+  /**
    * Clicks initial "Easy Apply" or "Apply" button on job listing pages if form is not yet visible.
    */
   public static async clickInitialApplyButton(): Promise<boolean> {
     const applySelectors = [
+      '#jobs-apply-button-id',
       'button.jobs-apply-button',
+      '.jobs-apply-button--top-card button',
       '[data-control-name="jobdetails_topcard_easy_apply"]',
       'button[aria-label*="Easy Apply" i]',
       'button[aria-label*="Apply now" i]',
@@ -31,26 +77,41 @@ export class MultiStepWizardRunner {
       'button[class*="easyApply" i]'
     ];
 
+    let clicked = false;
     for (const sel of applySelectors) {
       const btn = document.querySelector<HTMLElement>(sel);
-      if (btn && this.isVisible(btn) && !btn.hasAttribute('disabled')) {
+      if (btn && this.isVisible(btn) && !btn.hasAttribute('disabled') && btn.getAttribute('aria-disabled') !== 'true') {
+        const text = (btn.textContent || '').trim().toLowerCase();
+        if (text.includes('applied')) {
+          logger.info('MultiStepWizardRunner', 'Already applied to this job.');
+          return false;
+        }
         logger.info('MultiStepWizardRunner', `Clicking initial apply button: ${sel}`);
-        btn.click();
-        await new Promise((r) => setTimeout(r, 1500));
-        return true;
+        this.triggerRealClick(btn);
+        clicked = true;
+        break;
       }
     }
 
-    // Generic button matching "Easy Apply" or "Apply Now"
-    const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, a[role="button"]'));
-    for (const btn of buttons) {
-      const text = (btn.textContent || '').trim().toLowerCase();
-      if ((text === 'easy apply' || text === 'apply now' || text === 'easily apply') && this.isVisible(btn)) {
-        logger.info('MultiStepWizardRunner', `Clicking generic apply button: "${text}"`);
-        btn.click();
-        await new Promise((r) => setTimeout(r, 1500));
-        return true;
+    if (!clicked) {
+      // Generic button matching "Easy Apply" or "Apply Now"
+      const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, a[role="button"]'));
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').trim().toLowerCase();
+        if ((text === 'easy apply' || text === 'apply now' || text === 'easily apply' || text.includes('easy apply')) && this.isVisible(btn) && !text.includes('applied')) {
+          logger.info('MultiStepWizardRunner', `Clicking generic apply button: "${text}"`);
+          this.triggerRealClick(btn);
+          clicked = true;
+          break;
+        }
       }
+    }
+
+    if (clicked) {
+      // Wait for modal or dialog to appear and for interactive fields to mount
+      const mounted = await this.waitForModalToMount(4500);
+      logger.info('MultiStepWizardRunner', `Modal mounted after initial apply click: ${mounted}`);
+      return true;
     }
 
     return false;

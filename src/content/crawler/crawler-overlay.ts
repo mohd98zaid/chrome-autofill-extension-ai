@@ -133,8 +133,16 @@ export class CrawlerOverlay {
         pill.remove();
         return;
       }
-      pill.remove();
-      onStart();
+      pill.innerHTML = `
+        <div style="background: linear-gradient(135deg, #1e40af, #1d4ed8); color: white; padding: 10px 18px; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.2);">
+          <span style="font-size: 14px;">&#9203;</span>
+          <span>Starting Easy Apply...</span>
+        </div>
+      `;
+      setTimeout(() => {
+        pill.remove();
+        onStart();
+      }, 350);
     };
   }
 

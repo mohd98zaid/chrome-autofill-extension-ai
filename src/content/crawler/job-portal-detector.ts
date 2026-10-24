@@ -90,32 +90,71 @@ export class JobPortalDetector {
 
   private static extractLinkedIn(maxCount: number): JobListingItem[] {
     const items: JobListingItem[] = [];
+
+    // 1. If currently viewed job in details pane has active "Easy Apply", include it first
+    const activeApplyBtn = document.querySelector('#jobs-apply-button-id, button.jobs-apply-button, button[aria-label*="Easy Apply" i]');
+    if (activeApplyBtn && !activeApplyBtn.textContent?.toLowerCase().includes('applied')) {
+      const topTitle = document.querySelector(
+        'h1.t-24, h1[class*="job-title" i], .jobs-unified-top-card__job-title, .job-details-jobs-unified-top-card__job-title, .jobs-details__main-content h1'
+      )?.textContent?.trim();
+      const topCompany = document.querySelector(
+        '.jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__company-name, .jobs-details-top-card__company-url'
+      )?.textContent?.trim();
+
+      if (topTitle) {
+        items.push({
+          id: `li_active_${Date.now()}`,
+          title: topTitle,
+          company: topCompany || 'Company',
+          url: this.normalizeUrl(window.location.href),
+          platform: 'linkedin',
+          status: 'pending'
+        });
+      }
+    }
+
+    // 2. Scan search result cards in list
     const cards = document.querySelectorAll(
-      '.job-card-container, .jobs-search-results__list-item, [data-occludable-job-id]'
+      '.job-card-container, .jobs-search-results__list-item, .scaffold-layout__list-item, [data-occludable-job-id], [data-job-id], .jobs-search-results-list__list-item'
     );
 
     cards.forEach((card, idx) => {
       if (items.length >= maxCount) return;
-      const link = card.querySelector<HTMLAnchorElement>('a.job-card-list__title, a[href*="/jobs/view/"], .job-card-container__link');
-      if (!link || !link.href) return;
 
-      const title = (link.textContent || '').trim();
+      const link = card.querySelector<HTMLAnchorElement>(
+        'a.job-card-list__title, a.job-card-container__link, a[href*="/jobs/view/"], a[data-control-id]'
+      );
+      const rawJobId =
+        card.getAttribute('data-job-id') ||
+        card.querySelector('[data-job-id]')?.getAttribute('data-job-id') ||
+        card.getAttribute('data-occludable-job-id') ||
+        (link?.href ? link.href.match(/\/jobs\/view\/(\d+)/)?.[1] : undefined);
+
+      const title = (link?.textContent || card.querySelector('.job-card-list__title')?.textContent || '').trim();
       if (!title) return;
 
-      const companyEl = card.querySelector('.job-card-container__primary-description, .artdeco-entity-lockup__subtitle');
+      const companyEl = card.querySelector(
+        '.job-card-container__primary-description, .job-card-container__company-name, .artdeco-entity-lockup__subtitle'
+      );
       const company = companyEl ? (companyEl.textContent || '').trim() : 'Company';
 
       const locEl = card.querySelector('.job-card-container__metadata-item');
       const location = locEl ? (locEl.textContent || '').trim() : undefined;
 
-      const cleanUrl = this.normalizeUrl(link.href);
+      const cardUrl = link && link.href && !link.href.startsWith('javascript')
+        ? this.normalizeUrl(link.href)
+        : rawJobId
+        ? `https://www.linkedin.com/jobs/view/${rawJobId}/`
+        : window.location.href;
+
+      const cleanId = rawJobId ? `li_${rawJobId}` : `li_${idx}_${Date.now()}`;
 
       items.push({
-        id: `li_${idx}_${Date.now()}`,
+        id: cleanId,
         title,
         company,
         location,
-        url: cleanUrl,
+        url: cardUrl,
         platform: 'linkedin',
         status: 'pending'
       });

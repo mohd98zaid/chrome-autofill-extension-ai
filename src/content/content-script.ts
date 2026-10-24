@@ -236,15 +236,28 @@ class ContentScriptController {
         if (JobPortalDetector.isSearchOrBoardPage()) {
           setTimeout(() => {
             try {
-              const jobs = JobPortalDetector.extractJobListings(5);
+              const jobs = JobPortalDetector.extractJobListings(10);
               if (jobs.length > 0) {
                 CrawlerOverlay.renderLauncherPill(jobs.length, () => {
-                  this.safeSendMessage({
-                    type: 'CRAWLER_START',
-                    source: 'content',
-                    payload: { maxJobs: jobs.length, mode: 'new_tab' },
-                    timestamp: new Date().toISOString()
-                  });
+                  const activeApplyBtn = document.querySelector(
+                    '#jobs-apply-button-id, button.jobs-apply-button, button[aria-label*="Easy Apply" i]'
+                  );
+                  if (activeApplyBtn && !activeApplyBtn.textContent?.toLowerCase().includes('applied')) {
+                    logger.info('ContentScript', 'Active Easy Apply job detected on page. Initiating immediate autofill flow.');
+                    this.safeSendMessage({
+                      type: 'UI_START_AUTOFILL',
+                      source: 'content',
+                      payload: { forceAll: true },
+                      timestamp: new Date().toISOString()
+                    });
+                  } else {
+                    this.safeSendMessage({
+                      type: 'CRAWLER_START',
+                      source: 'content',
+                      payload: { maxJobs: jobs.length, mode: 'new_tab' },
+                      timestamp: new Date().toISOString()
+                    });
+                  }
                 });
               }
             } catch (err) {
@@ -528,8 +541,9 @@ class ContentScriptController {
         lastClickedButton = stepButton.button;
 
         logger.info('ContentScript', `Advancing intermediate step with button: "${stepButton.label}"`);
-        stepButton.button.click();
-        await new Promise((r) => setTimeout(r, 1200));
+        MultiStepWizardRunner.triggerRealClick(stepButton.button);
+        await MultiStepWizardRunner.waitForModalToMount(3000);
+        await new Promise((r) => setTimeout(r, 600));
         if (this.isAborted) break;
 
         const postClickError = document.querySelector(
