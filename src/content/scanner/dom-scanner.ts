@@ -501,7 +501,23 @@ export class DOMScanner {
       }
     }
 
-    // 4. If currentLabel is already a descriptive question
+    // 4. Ancestor search for group prompt if current label is short or binary option
+    let ancestor = element.parentElement;
+    let depth = 0;
+    while (ancestor && ancestor !== document.body && depth < 5) {
+      const elId = element.getAttribute('id') || 'none';
+      const candidateHeader = ancestor.querySelector('legend, h1, h2, h3, h4, h5, h6, [role="heading"], label:not([for="' + CSS.escape(elId) + '"]), .label, [class*="label" i], [class*="title" i], [class*="prompt" i], [class*="question" i]');
+      if (candidateHeader && candidateHeader !== element && candidateHeader.textContent) {
+        const text = cleanText(candidateHeader.textContent);
+        if (text && text.length > 5 && text !== currentLabel && !/^(yes|no|true|false)$/i.test(text)) {
+          return text;
+        }
+      }
+      ancestor = ancestor.parentElement;
+      depth++;
+    }
+
+    // 5. If currentLabel is already a descriptive question
     if (currentLabel && currentLabel.length >= 10 && /\b(how|what|why|which|do|does|have|has|are|is|please|describe|select)\b/i.test(currentLabel)) {
       return currentLabel;
     }
@@ -548,7 +564,15 @@ export class DOMScanner {
       const selector = name
         ? `input[type="${controlType}"][name="${name.replace(/"/g, '\\"')}"]`
         : `input[type="${controlType}"]`;
-      const siblings = container ? Array.from(container.querySelectorAll<HTMLInputElement>(selector)) : [];
+      let siblings = container ? Array.from(container.querySelectorAll<HTMLInputElement>(selector)) : [];
+      if (siblings.length <= 1 && name) {
+        const root = element.closest('form') || document;
+        try {
+          siblings = Array.from(root.querySelectorAll<HTMLInputElement>(`input[type="${controlType}"][name="${CSS.escape(name)}"]`));
+        } catch {
+          siblings = Array.from(root.querySelectorAll<HTMLInputElement>(`input[type="${controlType}"][name="${name.replace(/"/g, '\\"')}"]`));
+        }
+      }
       if (siblings.length > 1) {
         return siblings.map((sib) => {
           const sibLabel = this.findLabelText(sib) || sib.value || '';

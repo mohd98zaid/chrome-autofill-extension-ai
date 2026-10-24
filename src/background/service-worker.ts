@@ -161,10 +161,24 @@ class BackgroundService {
           `My Work Experience: ${currentProfile.experiences.map((e) => `${e.title} at ${e.company} (${e.startDate} - ${e.endDate}): ${e.description}`).join('; ')}`,
           `My Education: ${currentProfile.education.map((ed) => `${ed.degree} in ${ed.field} from ${ed.institution}`).join('; ')}`,
           `My Skills: ${currentProfile.skills.map((s) => s.canonicalName).join(', ')}`,
-          `My Location: ${currentProfile.location.city}, ${currentProfile.location.country}`,
+          `My Location: ${[currentProfile.location.city, currentProfile.location.state, currentProfile.location.country].filter(Boolean).join(', ')}`,
           `My Notice Period: ${currentProfile.preferences.noticePeriodDays} days`,
-          `Work Authorization: ${currentProfile.preferences.workAuthorization}`
-        ];
+          `Work Authorization Status: ${currentProfile.preferences.workAuthorization || 'Authorized to work'}`,
+          `Visa Status: ${currentProfile.preferences.visaStatus || 'Authorized'}`,
+          `Requires Visa Sponsorship: ${currentProfile.preferences.requiresSponsorship ? 'Yes' : 'No'}`,
+          `Willing to Relocate: ${currentProfile.preferences.willingToRelocate ? 'Yes' : 'No'}`,
+          `Desired Salary: ${currentProfile.preferences.desiredSalary || 'Competitive / Open to negotiation'}`,
+          `Remote Work Preference: ${currentProfile.preferences.remotePreference || 'Any'}`,
+          currentProfile.certifications && currentProfile.certifications.length > 0
+            ? `My Certifications: ${currentProfile.certifications.map((c) => `${c.name} (${c.issuer})`).join(', ')}`
+            : '',
+          currentProfile.projects && currentProfile.projects.length > 0
+            ? `My Projects: ${currentProfile.projects.map((p) => `${p.title}: ${p.description}`).join('; ')}`
+            : '',
+          currentProfile.customQA && currentProfile.customQA.length > 0
+            ? `Known Verified Q&A: ${currentProfile.customQA.slice(0, 15).map((q) => `[Q: ${q.question} => A: ${q.answer}]`).join('; ')}`
+            : ''
+        ].filter(Boolean);
 
         // Generate grounded answer via AI Orchestrator
         const aiRes = await aiOrchestrator.generateAnswer({

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { CloudAIAdapter } from '../src/background/ai/cloud-adapter';
 import { DeterministicClassifier } from '../src/content/classifier/deterministic-classifier';
 import { resolveFieldValue } from '../src/content/resolver/field-resolver';
@@ -97,6 +97,15 @@ describe('NVIDIA NIM Cloud AI Integration & Fallback', () => {
 
     expect(callCount).toBe(2);
     expect(result.answer).toContain('Expert');
+
+    // On second query, it should directly invoke the promoted working model without retrying the failed primary model
+    const secondResult = await adapter.generateAnswer({
+      question: 'Will you require visa sponsorship?',
+      profileEvidence: ['Candidate does not require visa sponsorship']
+    });
+
+    expect(callCount).toBe(3); // only 1 call for the second query, not 2
+    expect(secondResult.answer).toBeDefined();
   });
 
   it('correctly maps nationality and citizenship to profile nationality/country', () => {

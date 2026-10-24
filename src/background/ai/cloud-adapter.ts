@@ -54,9 +54,11 @@ function parseJSONSafely<T = any>(raw: string, fallback: T): T {
 export class CloudAIAdapter implements AIProvider {
   public readonly name = 'cloud';
   private config: CloudAdapterConfig;
+  private activeModel: string | null = null;
 
   constructor(config: CloudAdapterConfig) {
     this.config = config;
+    this.activeModel = config.model || null;
   }
 
   public async isAvailable(): Promise<boolean> {
@@ -67,19 +69,27 @@ export class CloudAIAdapter implements AIProvider {
     let baseUrl = (this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
     let url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 
-    const models = [
+    // Prioritize active verified model, with fallback models available
+    const configuredModels = [
+      this.activeModel,
       this.config.model,
       this.config.fallbackModel
     ].filter((m): m is string => Boolean(m) && typeof m === 'string');
+
+    // Deduplicate while preserving order
+    const models = Array.from(new Set(configuredModels));
 
     if (models.length === 0) {
       models.push('gpt-4o-mini');
     }
 
     let lastError: Error | null = null;
-    const timeout = this.config.timeoutMs || 8000;
+    const defaultTimeout = this.config.timeoutMs || 8000;
+    const isNvidia = Boolean(this.config.apiKey.startsWith('nvapi-') || (this.config.baseUrl || '').includes('nvidia.com'));
 
     for (const model of models) {
+      // For slow queued NIM models like openai/gpt-oss-20b, cap wait time to 5000ms so fallback responds quickly
+      const timeout = (isNvidia && model.includes('gpt-oss')) ? Math.min(defaultTimeout, 5000) : defaultTimeout;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -97,7 +107,8 @@ export class CloudAIAdapter implements AIProvider {
               { role: 'system', content: `${INJECTION_DEFENSE_HEADER}\n\n${systemPrompt}` },
               { role: 'user', content: userPrompt }
             ],
-            temperature: 0.1
+            temperature: 0.1,
+            max_tokens: 1024
           }),
           signal: controller.signal
         });
@@ -112,11 +123,19 @@ export class CloudAIAdapter implements AIProvider {
         const content =
           data.choices?.[0]?.message?.content ||
           data.choices?.[0]?.message?.reasoning_content ||
+          data.choices?.[0]?.message?.reasoning ||
           '{}';
+
+        // Remember successfully responding model for remaining requests
+        this.activeModel = model;
         return content;
       } catch (err: any) {
         clearTimeout(timer);
         logger.warn('CloudAIAdapter', `Model ${model} failed or timed out: ${err.message}`);
+        // If the primary model failed/timed out, automatically promote the fallback model
+        if (this.config.fallbackModel && this.config.fallbackModel !== model) {
+          this.activeModel = this.config.fallbackModel;
+        }
         lastError = err;
       }
     }

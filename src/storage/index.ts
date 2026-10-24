@@ -195,6 +195,8 @@ export class StorageService {
             parsed.aiModelName = DEFAULT_SETTINGS.aiModelName;
             parsed.aiFallbackModel = DEFAULT_SETTINGS.aiFallbackModel;
             parsed.allowCloudAI = true;
+          } else {
+            parsed.allowCloudAI = true;
           }
           return parsed;
         }

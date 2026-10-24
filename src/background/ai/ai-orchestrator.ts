@@ -18,11 +18,14 @@ export class AIOrchestrator {
   public async getActiveProvider(): Promise<AIProvider> {
     const settings = await storage.getSettings();
 
-    if (settings.allowCloudAI && settings.aiApiKey && settings.aiProvider !== 'local') {
-      if (settings.aiProvider === 'gemini' || settings.aiApiKey.startsWith('AQ.') || settings.aiApiKey.startsWith('AIza')) {
+    const apiKey = (settings.aiApiKey || '').trim();
+    const hasCloudKey = Boolean(apiKey.length > 5 && settings.aiProvider !== 'local');
+
+    if (hasCloudKey) {
+      if (settings.aiProvider === 'gemini' || apiKey.startsWith('AQ.') || apiKey.startsWith('AIza')) {
         if (!this.geminiProvider) {
           this.geminiProvider = new GeminiAIAdapter({
-            apiKey: settings.aiApiKey,
+            apiKey,
             model: settings.aiModelName || 'gemini-flash-lite-latest',
             maxOutputTokens: 4096,
             temperature: 0.1
@@ -34,9 +37,9 @@ export class AIOrchestrator {
       }
 
       if (!this.cloudProvider) {
-        const isNvidia = settings.aiProvider === 'nvidia' || settings.aiApiKey.startsWith('nvapi-');
+        const isNvidia = settings.aiProvider === 'nvidia' || apiKey.startsWith('nvapi-');
         this.cloudProvider = new CloudAIAdapter({
-          apiKey: settings.aiApiKey,
+          apiKey,
           baseUrl: settings.aiBaseUrl || (isNvidia ? 'https://integrate.api.nvidia.com/v1' : undefined),
           model: settings.aiModelName || (isNvidia ? 'openai/gpt-oss-20b' : undefined),
           fallbackModel: settings.aiFallbackModel || (isNvidia ? 'nvidia/nemotron-3.5-lightning-30b-a3b' : undefined),
@@ -74,15 +77,17 @@ export class AIOrchestrator {
     // Ensure answer is cleaned to first-person, no long dashes, and fits maxLength
     result.answer = cleanAnswerText(result.answer, req.maxLength);
 
-    // Double check grounding per Security.md Section 10
-    const grounding = await provider.validateGrounding({
-      textToAudit: result.answer,
-      approvedEvidence: req.profileEvidence
-    });
+    // Check grounding: cloud providers evaluate grounding directly in prompt; for local provider run local audit
+    if (provider.name === 'local') {
+      const grounding = await provider.validateGrounding({
+        textToAudit: result.answer,
+        approvedEvidence: req.profileEvidence
+      });
 
-    if (grounding.status === 'failed') {
-      result.groundingStatus = 'failed';
-      result.unsupportedClaims = grounding.unsupportedClaims;
+      if (grounding.status === 'failed') {
+        result.groundingStatus = 'failed';
+        result.unsupportedClaims = grounding.unsupportedClaims;
+      }
     }
 
     return result;

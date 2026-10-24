@@ -595,8 +595,8 @@ class ContentScriptController {
           classification.semanticType === 'custom' ||
           classification.semanticType === 'unknown' ||
           field.controlType === 'textarea' ||
-          Boolean(field.questionPrompt && field.questionPrompt.length >= 6) ||
-          Boolean(field.labelText && /\b(how|what|why|which|do|does|have|has|are|is|please|describe|select|years of hands-on)\b|\?/i.test(field.labelText));
+          Boolean(field.questionPrompt && field.questionPrompt.length >= 4) ||
+          Boolean(field.labelText && /\b(how|what|why|which|do|does|have|has|are|is|please|describe|select|will|can|could|would|should|years|sponsorship|relocate|authorized)\b|\?/i.test(field.labelText));
 
         // For specific domain experience questions in textareas (e.g. "How many years... in QA, AI/ML testing..."),
         // give precedence to Q&A memory bank / AI domain answering over generic global year calculation
@@ -609,7 +609,15 @@ class ContentScriptController {
           targetValue = null;
         }
 
-        if (isQuestionCandidate && (targetValue === null || targetValue === undefined || targetValue === '')) {
+        const hasPromptText = Boolean(
+          (field.questionPrompt && field.questionPrompt.trim().length >= 3) ||
+          (field.labelText && field.labelText.trim().length >= 3) ||
+          (field.placeholder && field.placeholder.trim().length >= 3) ||
+          (field.nearbyText && field.nearbyText.trim().length >= 3) ||
+          (field.name && field.name.trim().length >= 3)
+        );
+
+        if ((isQuestionCandidate || settings.aiEnabled) && hasPromptText && (targetValue === null || targetValue === undefined || targetValue === '')) {
           const qVal = await this.resolveQuestionField(
             field,
             element,
@@ -1049,16 +1057,9 @@ class ContentScriptController {
 
   private isHighImpactField(type: SemanticFieldType): boolean {
     const highImpact: SemanticFieldType[] = [
-      'salary',
-      'work_authorization',
-      'visa_status',
-      'sponsorship',
-      'relocation',
       'criminal_record',
       'legal_question',
-      'willingness',
-      'security_question',
-      'application_question'
+      'security_question'
     ];
     return highImpact.includes(type);
   }
@@ -1242,8 +1243,33 @@ class ContentScriptController {
     detectedCompany: string,
     detectedRole: string
   ): Promise<string | string[] | boolean | null> {
-    const promptText = (field.questionPrompt || field.labelText || field.nearbyText || field.placeholder || '').trim();
-    if (!promptText || promptText.length < 4) return null;
+    let promptText = (field.questionPrompt || field.labelText || field.nearbyText || field.placeholder || '').trim();
+
+    // If it's a radio or checkbox button, the label is usually just "Yes" or "No"
+    if ((field.controlType === 'radio' || field.controlType === 'checkbox') && (!promptText || promptText.length < 15 || /^(yes|no|true|false|agree|male|female|other|decline|prefer not|na|n\/a)$/i.test(promptText))) {
+      const fieldset = element.closest('fieldset');
+      const legendText = fieldset?.querySelector('legend')?.textContent?.trim();
+      if (legendText && legendText.length > 5) {
+        promptText = legendText;
+      } else if (field.sectionHeading && field.sectionHeading.length > 5) {
+        promptText = field.sectionHeading;
+      } else {
+        let parent = element.parentElement;
+        let depth = 0;
+        while (parent && depth < 5) {
+          const qEl = parent.querySelector('legend, h1, h2, h3, h4, h5, h6, [role="heading"], [class*="label" i], [class*="title" i], [class*="question" i], p');
+          const txt = qEl?.textContent?.trim();
+          if (txt && txt.length > 5 && !/^(yes|no|true|false)$/i.test(txt)) {
+            promptText = txt;
+            break;
+          }
+          parent = parent.parentElement;
+          depth++;
+        }
+      }
+    }
+
+    if (!promptText || promptText.length < 3) return null;
 
     const candidateName =
       profile.identity?.fullName ||
@@ -1296,24 +1322,55 @@ class ContentScriptController {
       }
 
       if (field.controlType === 'select' || field.controlType === 'combobox' || field.controlType === 'searchable_select') {
-        const optionLabels = (field.options || [])
+        let optionLabels = (field.options || [])
           .map((o) => o.label)
           .filter((l) => l && !/^(?:select|choose|please select|--)/i.test(l.trim()));
         
+        if (optionLabels.length === 0 && element.tagName === 'SELECT') {
+          const sel = element as HTMLSelectElement;
+          optionLabels = Array.from(sel.options)
+            .map((o) => o.text.trim())
+            .filter((l) => l && !/^(?:select|choose|please select|--)/i.test(l.trim()));
+        }
+
         if (optionLabels.length > 0) {
           const isMulti = element instanceof HTMLSelectElement && element.multiple;
           const aiRes = await this.generateAndSaveRealtimeAnswer(promptText, field, detectedCompany, detectedRole, optionLabels, isMulti);
           if (aiRes?.answer) {
             this.recordNewQA(profile, promptText, aiRes.answer, detectedCompany);
             // Return option value matching the answer
-            const matched = (field.options || []).find((o) => o.label.toLowerCase() === aiRes.answer.toLowerCase());
+            const ansLower = aiRes.answer.toLowerCase().trim();
+            const matched = (field.options || []).find((o) => {
+              const l = o.label.toLowerCase().trim();
+              const v = (o.value || '').toLowerCase().trim();
+              return l === ansLower || v === ansLower || l.includes(ansLower) || ansLower.includes(l);
+            });
             return matched ? (matched.value || matched.label) : aiRes.answer;
           }
         }
       }
 
       if (field.controlType === 'radio' || field.controlType === 'checkbox') {
-        const optionLabels = (field.options || []).map((o) => o.label).filter(Boolean);
+        let optionLabels = (field.options || []).map((o) => o.label).filter(Boolean);
+        if (optionLabels.length <= 1) {
+          const name = element.getAttribute('name');
+          if (name) {
+            const root = element.closest('form') || document;
+            try {
+              const siblings = Array.from(root.querySelectorAll<HTMLInputElement>(`input[type="${field.controlType}"][name="${CSS.escape(name)}"]`));
+              if (siblings.length > 1) {
+                optionLabels = siblings.map((sib) => {
+                  const sibLabel = sib.closest('label')?.textContent?.trim() || (sib.id ? document.querySelector(`label[for="${CSS.escape(sib.id)}"]`)?.textContent?.trim() : '') || sib.value || '';
+                  return sibLabel;
+                }).filter(Boolean);
+              }
+            } catch {}
+          }
+          if (optionLabels.length <= 1) {
+            optionLabels = ['Yes', 'No'];
+          }
+        }
+
         if (optionLabels.length > 0) {
           const aiRes = await this.generateAndSaveRealtimeAnswer(
             promptText,
@@ -1325,7 +1382,7 @@ class ContentScriptController {
           );
           if (aiRes) {
             this.recordNewQA(profile, promptText, aiRes.answer, detectedCompany);
-            const myLabel = (field.labelText || '').toLowerCase().trim();
+            const myLabel = (field.labelText || (element as HTMLInputElement).value || '').toLowerCase().trim();
             const selected = (aiRes.selectedOptions || [aiRes.answer]).map((s) => s.toLowerCase().trim());
             const isMatch = selected.some((s) => s === myLabel || s.includes(myLabel) || myLabel.includes(s));
             return isMatch;
