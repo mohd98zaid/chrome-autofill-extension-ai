@@ -47,6 +47,13 @@ function parseJSONSafely<T = any>(raw: string, fallback: T): T {
     }
     return JSON.parse(clean);
   } catch {
+    // If first parse attempt fails, try regex extraction of { ... }
+    try {
+      const match = (raw || '').match(/\{[\s\S]*?\}/);
+      if (match) {
+        return JSON.parse(match[0]);
+      }
+    } catch {}
     return fallback;
   }
 }
@@ -65,7 +72,7 @@ export class CloudAIAdapter implements AIProvider {
     return Boolean(this.config.apiKey && this.config.apiKey.length > 5);
   }
 
-  private async callChatCompletion(systemPrompt: string, userPrompt: string, maxTokens = 1024): Promise<string> {
+  private async callChatCompletion(systemPrompt: string, userPrompt: string, maxTokens = 2048): Promise<string> {
     let baseUrl = (this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
     let url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 
@@ -84,12 +91,10 @@ export class CloudAIAdapter implements AIProvider {
     }
 
     let lastError: Error | null = null;
-    const defaultTimeout = this.config.timeoutMs || 8000;
-    const isNvidia = Boolean(this.config.apiKey.startsWith('nvapi-') || (this.config.baseUrl || '').includes('nvidia.com'));
+    const defaultTimeout = this.config.timeoutMs || 15000;
 
     for (const model of models) {
-      // For slow queued NIM models like openai/gpt-oss-20b, cap wait time to 5000ms so fallback responds quickly
-      const timeout = (isNvidia && model.includes('gpt-oss')) ? Math.min(defaultTimeout, 5000) : defaultTimeout;
+      const timeout = defaultTimeout;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -120,11 +125,19 @@ export class CloudAIAdapter implements AIProvider {
         }
 
         const data = await res.json();
-        const content =
-          data.choices?.[0]?.message?.content ||
-          data.choices?.[0]?.message?.reasoning_content ||
-          data.choices?.[0]?.message?.reasoning ||
-          '{}';
+        const choice = data.choices?.[0];
+        let content = choice?.message?.content;
+
+        if (!content || typeof content !== 'string' || content.trim() === '') {
+          // If content is empty/null (common in reasoning models when tokens deplete), extract from reasoning_content
+          const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || '';
+          if (reasoning) {
+            const jsonMatch = reasoning.match(/\{[\s\S]*?\}/);
+            content = jsonMatch ? jsonMatch[0] : reasoning;
+          } else {
+            content = '{}';
+          }
+        }
 
         // Remember successfully responding model for remaining requests
         this.activeModel = model;
@@ -200,10 +213,11 @@ Output JSON: { "matches": [{ "jobSkill": string, "profileSkill": string, "matchT
 Never fabricate employers, titles, years, certifications, projects, metrics, or technologies.
 If something is unsupported, acknowledge limitation instead of inventing.
 Respect max words limit.
+If the question asks for years of experience or a numeric quantity (e.g. "How many years..."), output ONLY the single number in the answer field (e.g. "4").
 If options are provided in req.options, choose the best matching option(s). Output JSON: { "answer": string, "selectedOptions"?: string[], "groundingStatus": "passed"|"failed", "unsupportedClaims": string[], "sourceRefs": string[] }`;
 
     const user = JSON.stringify(req);
-    const raw = await this.callChatCompletion(system, user);
+    const raw = await this.callChatCompletion(system, user, 2048);
     const parsed = parseJSONSafely(raw, { answer: '', selectedOptions: [], groundingStatus: 'passed', unsupportedClaims: [], sourceRefs: ['ai_generated'] });
     return {
       answer: parsed.answer || '',

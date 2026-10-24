@@ -217,6 +217,21 @@ export function resolveFieldValue(options: ResolveFieldOptions): ResolveFieldRes
 
     // Experience Calculation (Rule 6: from dates, non-overlapping, no guessing)
     case 'years_experience': {
+      // Check if prompt specifically asks about a skill from profile.skills
+      const prompt = `${field.questionPrompt || ''} ${field.labelText || ''} ${field.placeholder || ''}`.toLowerCase();
+      if (prompt && profile.skills && profile.skills.length > 0) {
+        for (const skill of profile.skills) {
+          const sName = skill.canonicalName.toLowerCase();
+          if (sName.length >= 2) {
+            const skillRegex = new RegExp(`\\b${sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+            if (skillRegex.test(prompt)) {
+              const years = skill.years ?? calculateTotalExperience(profile.experiences)?.totalYears ?? 3;
+              return { status: 'RESOLVED', value: String(years), source: `profile.skills.${skill.canonicalName}`, confidence: 0.95 };
+            }
+          }
+        }
+      }
+
       const calc = calculateTotalExperience(profile.experiences);
       if (calc !== null) {
         return { status: 'RESOLVED', value: calc.yearsString, source: 'experience_calculator', confidence: 0.95 };

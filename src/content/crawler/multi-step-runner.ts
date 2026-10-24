@@ -26,6 +26,14 @@ export class MultiStepWizardRunner {
       element.focus();
     } catch {}
 
+    const pointerEvents = ['pointerdown', 'pointerup'];
+    for (const eventType of pointerEvents) {
+      try {
+        const event = new PointerEvent(eventType, { bubbles: true, cancelable: true });
+        element.dispatchEvent(event);
+      } catch {}
+    }
+
     const mouseEvents = ['mousedown', 'mouseup', 'click'];
     for (const eventType of mouseEvents) {
       try {
@@ -40,6 +48,12 @@ export class MultiStepWizardRunner {
         } catch {}
       }
     }
+
+    try {
+      if (typeof element.click === 'function') {
+        element.click();
+      }
+    } catch {}
   }
 
   /**
@@ -48,7 +62,7 @@ export class MultiStepWizardRunner {
   public static async waitForModalToMount(maxWaitMs: number = 5000): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < maxWaitMs) {
-      const modal = document.querySelector('[role="dialog"], .jobs-easy-apply-modal, [class*="modal" i], form');
+      const modal = document.querySelector('[role="dialog"], .jobs-easy-apply-modal, [data-test-modal], [class*="modal" i], form');
       if (modal) {
         const fields = modal.querySelectorAll('input:not([type="hidden"]), textarea, select, button[type="submit"]');
         if (fields.length > 0) return true;
@@ -66,6 +80,8 @@ export class MultiStepWizardRunner {
       '#jobs-apply-button-id',
       'button.jobs-apply-button',
       '.jobs-apply-button--top-card button',
+      '.jobs-s-apply button',
+      'button.jobs-apply-button--top-card',
       '[data-control-name="jobdetails_topcard_easy_apply"]',
       'button[aria-label*="Easy Apply" i]',
       'button[aria-label*="Apply now" i]',
@@ -123,11 +139,11 @@ export class MultiStepWizardRunner {
    */
   public static findStepButton(): { type: 'intermediate' | 'final' | 'none'; button?: HTMLElement; label?: string } {
     const FINAL_SUBMIT_REGEX = /\b(submit|submit application|submit your application|send application|confirm and submit|finish application|complete application|complete submission|submit candidate)\b/i;
-    const INTERMEDIATE_REGEX = /^(next|continue|proceed|next step|review|review application|review your application|save & continue|save and continue)$/i;
+    const INTERMEDIATE_REGEX = /\b(next|continue|proceed|review|review application|review your application|save\s*&\s*continue|save\s*and\s*continue)\b/i;
 
     // Search in dialog, modal, form, or document body
     const container =
-      document.querySelector('.jobs-easy-apply-modal, [role="dialog"], form, .application-modal') ||
+      document.querySelector('.jobs-easy-apply-modal, [role="dialog"], [data-test-modal], form, .application-modal') ||
       document.body ||
       document.documentElement;
 
@@ -150,6 +166,7 @@ export class MultiStepWizardRunner {
     // 1. Check if FINAL SUBMIT is present (Last Stage)
     for (const btn of candidates) {
       const txt = (btn.textContent || btn.getAttribute('aria-label') || (btn as HTMLInputElement).value || '').trim();
+      if (/\b(cancel|dismiss|close|back|discard|previous)\b/i.test(txt)) continue;
       if (FINAL_SUBMIT_REGEX.test(txt)) {
         return { type: 'final', button: btn, label: txt };
       }
@@ -158,6 +175,7 @@ export class MultiStepWizardRunner {
     // 2. Check if INTERMEDIATE STEP button is present
     for (const btn of candidates) {
       const txt = (btn.textContent || btn.getAttribute('aria-label') || (btn as HTMLInputElement).value || '').trim();
+      if (/\b(cancel|dismiss|close|back|discard|previous)\b/i.test(txt)) continue;
       if (INTERMEDIATE_REGEX.test(txt)) {
         return { type: 'intermediate', button: btn, label: txt };
       }

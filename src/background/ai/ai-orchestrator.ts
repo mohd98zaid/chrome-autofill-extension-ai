@@ -9,7 +9,9 @@ import { cleanAnswerText } from '../../utils/text-cleaner';
 export class AIOrchestrator {
   private localProvider: LocalAIProvider;
   private cloudProvider: CloudAIAdapter | null = null;
+  private lastCloudConfigKey = '';
   private geminiProvider: GeminiAIAdapter | null = null;
+  private lastGeminiConfigKey = '';
 
   constructor() {
     this.localProvider = new LocalAIProvider();
@@ -23,28 +25,36 @@ export class AIOrchestrator {
 
     if (hasCloudKey) {
       if (settings.aiProvider === 'gemini' || apiKey.startsWith('AQ.') || apiKey.startsWith('AIza')) {
-        if (!this.geminiProvider) {
+        const geminiKey = `${apiKey}|${settings.aiModelName || 'gemini-flash-lite-latest'}`;
+        if (!this.geminiProvider || this.lastGeminiConfigKey !== geminiKey) {
           this.geminiProvider = new GeminiAIAdapter({
             apiKey,
             model: settings.aiModelName || 'gemini-flash-lite-latest',
             maxOutputTokens: 4096,
             temperature: 0.1
           });
+          this.lastGeminiConfigKey = geminiKey;
         }
         if (await this.geminiProvider.isAvailable()) {
           return this.geminiProvider;
         }
       }
 
-      if (!this.cloudProvider) {
-        const isNvidia = settings.aiProvider === 'nvidia' || apiKey.startsWith('nvapi-');
+      const isNvidia = settings.aiProvider === 'nvidia' || apiKey.startsWith('nvapi-');
+      const baseUrl = settings.aiBaseUrl || (isNvidia ? 'https://integrate.api.nvidia.com/v1' : undefined);
+      const model = settings.aiModelName || (isNvidia ? 'openai/gpt-oss-20b' : undefined);
+      const fallbackModel = settings.aiFallbackModel || (isNvidia ? 'nvidia/nemotron-3.5-lightning-30b-a3b' : undefined);
+      const cloudKey = `${apiKey}|${baseUrl}|${model}|${fallbackModel}`;
+
+      if (!this.cloudProvider || this.lastCloudConfigKey !== cloudKey) {
         this.cloudProvider = new CloudAIAdapter({
           apiKey,
-          baseUrl: settings.aiBaseUrl || (isNvidia ? 'https://integrate.api.nvidia.com/v1' : undefined),
-          model: settings.aiModelName || (isNvidia ? 'openai/gpt-oss-20b' : undefined),
-          fallbackModel: settings.aiFallbackModel || (isNvidia ? 'nvidia/nemotron-3.5-lightning-30b-a3b' : undefined),
-          timeoutMs: 8000
+          baseUrl,
+          model,
+          fallbackModel,
+          timeoutMs: 15000
         });
+        this.lastCloudConfigKey = cloudKey;
       }
       if (await this.cloudProvider.isAvailable()) {
         return this.cloudProvider;

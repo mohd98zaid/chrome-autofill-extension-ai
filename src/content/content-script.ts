@@ -14,6 +14,7 @@ import { FieldDescriptor, SemanticFieldType } from '../types/taxonomy';
 import { UserProfile, Settings, CustomQA } from '../types/profile';
 import { FilledFieldRecord, FieldStatus } from '../types/session';
 import { resolveFieldValue, interpolateCoverLetter } from './resolver/field-resolver';
+import { calculateTotalExperience } from '../utils/experience-calculator';
 import { cleanAnswerText } from '../utils/text-cleaner';
 import { JobPortalDetector } from './crawler/job-portal-detector';
 import { CrawlerOverlay } from './crawler/crawler-overlay';
@@ -454,12 +455,24 @@ class ContentScriptController {
       await new Promise((r) => setTimeout(r, 400));
     }
 
-    // 1. If no fields currently detected on page, attempt to click "Apply" / "Easy Apply"
-    const initialScan = this.scanner.scan();
-    if (initialScan.fields.length === 0) {
+    const findActiveModal = (): HTMLElement | null => {
+      const modal = document.querySelector<HTMLElement>(
+        '.jobs-easy-apply-modal, [role="dialog"], [data-test-modal], form.jobs-easy-apply-form, form[class*="application" i]'
+      );
+      return modal && MultiStepWizardRunner.isVisible(modal) ? modal : null;
+    };
+
+    // 1. If application modal is not open, click initial "Easy Apply" or "Apply" button
+    let activeModal = findActiveModal();
+    if (!activeModal) {
+      logger.info('ContentScript', 'No active application modal open. Triggering initial Apply / Easy Apply button...');
       if (this.isAborted) return { filledCount: 0, records: [] };
-      await MultiStepWizardRunner.clickInitialApplyButton();
+      const clicked = await MultiStepWizardRunner.clickInitialApplyButton();
       if (this.isAborted) return { filledCount: 0, records: [] };
+      if (clicked) {
+        await new Promise((r) => setTimeout(r, 600));
+        activeModal = findActiveModal();
+      }
     }
 
     let totalFilled = 0;
@@ -484,6 +497,21 @@ class ContentScriptController {
       stepCount++;
       logger.info('ContentScript', `Processing application wizard step ${stepCount}...`);
 
+      // Dynamically scope scan to the active modal/form container on each step
+      const currentModal = findActiveModal();
+      const activeContainer =
+        currentModal ||
+        document.querySelector<HTMLElement>('form.jobs-easy-apply-form, form[class*="application" i], form') ||
+        document.body ||
+        document.documentElement;
+
+      const stepScan = this.scanner.scan(activeContainer);
+      this.currentDescriptors.clear();
+      this.elementMap = stepScan.elementMap || new Map();
+      for (const f of stepScan.fields) {
+        this.currentDescriptors.set(f.id, f);
+      }
+
       let res: { filledCount: number; records: FilledFieldRecord[] };
       try {
         res = await this.executeFill(payload);
@@ -500,7 +528,7 @@ class ContentScriptController {
       if (this.isAborted) break;
 
       // Check if validation error is present on current step (e.g. required field missing)
-      const errorIndicator = document.querySelector(
+      const errorIndicator = activeContainer.querySelector(
         '.artdeco-inline-feedback--error, [aria-invalid="true"], .input-error, [class*="error-message" i]'
       );
       if (errorIndicator) {
@@ -542,11 +570,11 @@ class ContentScriptController {
 
         logger.info('ContentScript', `Advancing intermediate step with button: "${stepButton.label}"`);
         MultiStepWizardRunner.triggerRealClick(stepButton.button);
-        await MultiStepWizardRunner.waitForModalToMount(3000);
+        await MultiStepWizardRunner.waitForModalToMount(3500);
         await new Promise((r) => setTimeout(r, 600));
         if (this.isAborted) break;
 
-        const postClickError = document.querySelector(
+        const postClickError = activeContainer.querySelector(
           '.artdeco-inline-feedback--error, [aria-invalid="true"], .input-error, [class*="error-message" i]'
         );
         if (postClickError) {
@@ -583,7 +611,8 @@ class ContentScriptController {
       const didExpand = await this.expandCandidateSections();
       if (didExpand) {
         // Refresh scanned fields so newly rendered inputs are included
-        const rescan = this.scanner.scan();
+        const container = document.querySelector<HTMLElement>('.jobs-easy-apply-modal, [role="dialog"], [data-test-modal], form') || document;
+        const rescan = this.scanner.scan(container);
         this.currentDescriptors.clear();
         this.elementMap = rescan.elementMap || new Map();
         for (const f of rescan.fields) {
@@ -777,15 +806,19 @@ class ContentScriptController {
               `${profile.identity.firstName || ''} ${profile.identity.lastName || ''}`.trim() ||
               'Candidate';
             const primaryExp = profile.experiences?.[0];
-            const topSkills = profile.skills.slice(0, 5).map((s) => s.canonicalName).join(', ') || 'relevant skills';
+            const topSkills = profile.skills.slice(0, 5).map((s) => s.canonicalName).join(', ') || 'software engineering';
             const cleanRole = (detectedRole || 'open position')
               .replace(/^(?:join\s+(?:the\s+|our\s+)?|apply\s+(?:for\s+)?)/i, '')
+              .replace(/\b(?:team|role|position)\b/gi, '')
               .trim() || 'open position';
+            const cleanSummary = profile.summary
+              ? profile.summary.split('\n')[0].replace(/[◆•*()]/g, '').trim()
+              : '';
             const expSentence = primaryExp
               ? `As a ${primaryExp.title} at ${primaryExp.company}`
-              : (profile.summary || 'With extensive hands-on experience delivering high-quality solutions');
+              : (cleanSummary || 'With proven experience delivering scalable, well-engineered solutions');
 
-            letterContent = `Dear Hiring Team at ${detectedCompany || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${cleanRole} position at ${detectedCompany || 'your organization'}. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on architecting resilient solutions, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to technical excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
+            letterContent = `Dear Hiring Team at ${detectedCompany || 'your organization'},\n\nI am writing to express my strong enthusiasm for the ${cleanRole} role at ${detectedCompany || 'your organization'}. ${expSentence}, I have developed deep expertise in ${topSkills}.\n\nThroughout my career, I have focused on architecting resilient solutions, driving efficiency, and delivering high-quality results. With my hands-on background and dedication to technical excellence, I am confident in my ability to contribute meaningfully to your team.\n\nI welcome the opportunity to discuss how my qualifications align with your requirements. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
           }
 
           targetValue = letterContent;
@@ -1376,7 +1409,11 @@ class ContentScriptController {
     if (rememberedAnswer) {
       rememberedAnswer = cleanAnswerText(rememberedAnswer, field.maxLength, candidateName);
       logger.info('ContentScript', `Reusing saved answer from Q&A memory bank for: "${promptText.slice(0, 35)}..."`);
-      if (field.controlType === 'textarea' || field.controlType === 'text') {
+      if (field.controlType === 'textarea' || field.controlType === 'text' || field.controlType === 'number') {
+        if (field.controlType === 'number') {
+          const numMatch = rememberedAnswer.match(/\d+/);
+          return numMatch ? numMatch[0] : rememberedAnswer;
+        }
         return rememberedAnswer;
       }
       if (field.controlType === 'select' || field.controlType === 'combobox' || field.controlType === 'searchable_select') {
@@ -1406,12 +1443,36 @@ class ContentScriptController {
       }
     }
 
+    // Direct Skill or Experience resolution for number or question inputs
+    if (field.controlType === 'number' || /\b(?:years?|experience)\b/i.test(promptText)) {
+      if (profile.skills && profile.skills.length > 0) {
+        for (const skill of profile.skills) {
+          const sName = skill.canonicalName.toLowerCase();
+          if (sName.length >= 2) {
+            const skillRegex = new RegExp(`\\b${sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+            if (skillRegex.test(promptText.toLowerCase())) {
+              const yrs = skill.years ?? 4;
+              return String(yrs);
+            }
+          }
+        }
+      }
+      if (/\b(?:total|overall|career)\b/i.test(promptText) || /\byears\s+(?:of\s+)?experience\b/i.test(promptText)) {
+        const calc = calculateTotalExperience(profile.experiences);
+        if (calc) return calc.yearsString;
+      }
+    }
+
     // Step B: Real-Time AI Generation if enabled
     if (settings.aiEnabled) {
-      if (field.controlType === 'textarea' || field.controlType === 'text') {
+      if (field.controlType === 'textarea' || field.controlType === 'text' || field.controlType === 'number') {
         const aiRes = await this.generateAndSaveRealtimeAnswer(promptText, field, detectedCompany, detectedRole);
         if (aiRes?.answer) {
-          const cleaned = cleanAnswerText(aiRes.answer, field.maxLength, candidateName);
+          let cleaned = cleanAnswerText(aiRes.answer, field.maxLength, candidateName);
+          if (field.controlType === 'number') {
+            const numMatch = cleaned.match(/\d+/);
+            if (numMatch) cleaned = numMatch[0];
+          }
           this.recordNewQA(profile, promptText, cleaned, detectedCompany);
           return cleaned;
         }

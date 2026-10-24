@@ -46,6 +46,22 @@ describe('MultiStepWizardRunner', () => {
     expect(stepFinal.label).toBe('Submit application');
   });
 
+  it('detects LinkedIn aria-label continue button and ignores cancel/dismiss buttons', () => {
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Dismiss';
+    cancelBtn.getBoundingClientRect = () => ({ width: 80, height: 35, top: 0, left: 0, bottom: 35, right: 80, x: 0, y: 0, toJSON: () => {} });
+    document.body.appendChild(cancelBtn);
+
+    const linkedInNextBtn = document.createElement('button');
+    linkedInNextBtn.setAttribute('aria-label', 'Continue to next step');
+    linkedInNextBtn.getBoundingClientRect = () => ({ width: 120, height: 35, top: 0, left: 100, bottom: 35, right: 220, x: 100, y: 0, toJSON: () => {} });
+    document.body.appendChild(linkedInNextBtn);
+
+    const step = MultiStepWizardRunner.findStepButton();
+    expect(step.type).toBe('intermediate');
+    expect(step.label).toBe('Continue to next step');
+  });
+
   it('ignores crawler overlay buttons', () => {
     const overlayNext = document.createElement('button');
     overlayNext.id = '__btn_crawler_next';

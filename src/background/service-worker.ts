@@ -1,6 +1,7 @@
 import { storage, deduplicateSkills, deduplicateExperiences, deduplicateEducation } from '../storage';
 import { aiOrchestrator } from './ai/ai-orchestrator';
 import { CustomQA } from '../types/profile';
+import { calculateTotalExperience } from '../utils/experience-calculator';
 import {
   ExtensionMessage,
   ExtensionResponse,
@@ -155,12 +156,14 @@ class BackgroundService {
           `${currentProfile.identity.firstName || ''} ${currentProfile.identity.lastName || ''}`.trim();
 
         // Build rich profile evidence for grounding (framed from applicant's first-person perspective)
+        const totalExp = calculateTotalExperience(currentProfile.experiences);
         const profileEvidence = [
           `Applicant Name: ${candidateName}`,
           `My Summary: ${currentProfile.summary}`,
+          totalExp ? `Total Professional Experience: ${totalExp.yearsString} years` : '',
           `My Work Experience: ${currentProfile.experiences.map((e) => `${e.title} at ${e.company} (${e.startDate} - ${e.endDate}): ${e.description}`).join('; ')}`,
           `My Education: ${currentProfile.education.map((ed) => `${ed.degree} in ${ed.field} from ${ed.institution}`).join('; ')}`,
-          `My Skills: ${currentProfile.skills.map((s) => s.canonicalName).join(', ')}`,
+          `My Skills: ${currentProfile.skills.map((s) => s.years ? `${s.canonicalName} (${s.years} years experience)` : s.canonicalName).join(', ')}`,
           `My Location: ${[currentProfile.location.city, currentProfile.location.state, currentProfile.location.country].filter(Boolean).join(', ')}`,
           `My Notice Period: ${currentProfile.preferences.noticePeriodDays} days`,
           `Work Authorization Status: ${currentProfile.preferences.workAuthorization || 'Authorized to work'}`,

@@ -59,6 +59,10 @@ describe('Centralized Field Resolver', () => {
       country: 'United States',
       zipCode: '94105'
     },
+    skills: [
+      { id: 's1', canonicalName: 'Python', aliases: [], proficiency: 'expert', years: 5, source: ['resume'], verified: true },
+      { id: 's2', canonicalName: 'TypeScript', aliases: [], proficiency: 'expert', years: 4, source: ['resume'], verified: true }
+    ],
     experiences: [
       {
         id: 'exp1',
@@ -165,6 +169,13 @@ describe('Centralized Field Resolver', () => {
 
     const resEmpty = resolveFieldValue({ semanticType: 'years_experience', field: mockField, profile: emptyProfile });
     expect(resEmpty.status).toBe('NEEDS_USER');
+  });
+
+  it('resolves skill-specific years of experience when prompt mentions a skill', () => {
+    const pythonField = { ...mockField, questionPrompt: 'How many years of work experience do you have with Python?' };
+    const res = resolveFieldValue({ semanticType: 'years_experience', field: pythonField, profile: filledProfile });
+    expect(res.status).toBe('RESOLVED');
+    expect(res.value).toBe('5');
   });
 
   it('interpolates predefined cover letter templates accurately with zero manual entry', () => {
