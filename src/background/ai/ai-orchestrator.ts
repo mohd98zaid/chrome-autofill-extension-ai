@@ -34,10 +34,13 @@ export class AIOrchestrator {
       }
 
       if (!this.cloudProvider) {
+        const isNvidia = settings.aiProvider === 'nvidia' || settings.aiApiKey.startsWith('nvapi-');
         this.cloudProvider = new CloudAIAdapter({
           apiKey: settings.aiApiKey,
-          baseUrl: settings.aiBaseUrl,
-          model: settings.aiModelName
+          baseUrl: settings.aiBaseUrl || (isNvidia ? 'https://integrate.api.nvidia.com/v1' : undefined),
+          model: settings.aiModelName || (isNvidia ? 'openai/gpt-oss-20b' : undefined),
+          fallbackModel: settings.aiFallbackModel || (isNvidia ? 'nvidia/nemotron-3.5-lightning-30b-a3b' : undefined),
+          timeoutMs: 8000
         });
       }
       if (await this.cloudProvider.isAvailable()) {

@@ -205,7 +205,7 @@ export class DeterministicClassifier {
       return { semanticType: 'zip_code', confidence: 0.96 - confidencePenalty, evidence: evidenceType };
     }
     // Country
-    if (/\bcountry\b|\bnation\b/.test(text)) {
+    if (/\bcountry\b|\bnation\b|\bnationality\b|\bcitizenship\b/.test(text)) {
       return { semanticType: 'country', confidence: 0.93 - confidencePenalty, evidence: evidenceType };
     }
     // Address
@@ -274,8 +274,11 @@ export class DeterministicClassifier {
       return { semanticType: 'language_proficiency', confidence: 0.94 - confidencePenalty, evidence: evidenceType };
     }
 
-    // Skills
+    // Skills vs Skill Rating / Evaluative Questions
     if (/\bskills\b|\btechnologies\b|\btech\s*stack\b|\bkey\s*skills\b|\btools\b|\blanguages\b/.test(text)) {
+      if (/\brate\b|\bhow\s*(?:well|would)\b|\bevaluate\b|\bdescribe\s*your\s*skill|\blevel\s*of\b/i.test(text)) {
+        return { semanticType: 'application_question', confidence: 0.95 - confidencePenalty, evidence: evidenceType };
+      }
       return { semanticType: 'skills', confidence: 0.93 - confidencePenalty, evidence: evidenceType };
     }
 

@@ -238,10 +238,11 @@ export type ResumeRecord = z.infer<typeof ResumeSchema>;
  */
 export const SettingsSchema = z.object({
   aiEnabled: z.boolean().default(true),
-  aiProvider: z.enum(['local', 'mock', 'openai', 'gemini', 'anthropic', 'custom']).default('local'),
+  aiProvider: z.enum(['local', 'mock', 'openai', 'gemini', 'anthropic', 'nvidia', 'custom']).default('nvidia'),
   aiApiKey: z.string().optional(),
   aiBaseUrl: z.string().optional(),
   aiModelName: z.string().optional(),
+  aiFallbackModel: z.string().optional(),
   autoFillThreshold: z.number().min(0).max(1).default(0.90),
   reviewThreshold: z.number().min(0).max(1).default(0.70),
   storeHistory: z.boolean().default(false),

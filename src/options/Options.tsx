@@ -1581,9 +1581,10 @@ Berkeley, CA | Aug 2016 – May 2020`;
                   onChange={(e) => setSettings({ ...settings, aiProvider: e.target.value as Settings['aiProvider'] })}
                   className="w-full md:w-72 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
                 >
-                  <option value="local">Local Heuristic (Privacy-First / Offline)</option>
-                  <option value="openai">OpenAI Compatible (Cloud)</option>
+                  <option value="nvidia">NVIDIA NIM (openai/gpt-oss-20b)</option>
                   <option value="gemini">Google Gemini (Cloud)</option>
+                  <option value="openai">OpenAI Compatible (Cloud)</option>
+                  <option value="local">Local Heuristic (Privacy-First / Offline)</option>
                   <option value="custom">Custom Endpoint</option>
                 </select>
               </div>
@@ -1609,7 +1610,7 @@ Berkeley, CA | Aug 2016 – May 2020`;
                       <input
                         type={showApiKey ? 'text' : 'password'}
                         value={settings.aiApiKey || ''}
-                        placeholder="AQ... or AIza... or sk-..."
+                        placeholder="nvapi-... or AQ... or AIza... or sk-..."
                         onChange={(e) => setSettings({ ...settings, aiApiKey: e.target.value })}
                         className="w-full px-3 py-2 pr-10 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
                       />
@@ -1624,12 +1625,23 @@ Berkeley, CA | Aug 2016 – May 2020`;
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Model Name</label>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Primary Model Name</label>
                     <input
                       type="text"
-                      placeholder="gemini-flash-lite-latest, gemini-flash-latest, or gpt-4o-mini"
+                      placeholder="openai/gpt-oss-20b or gemini-flash-lite-latest"
                       value={settings.aiModelName || ''}
                       onChange={(e) => setSettings({ ...settings, aiModelName: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Fallback Model Name (Auto-used if primary times out or errors)</label>
+                    <input
+                      type="text"
+                      placeholder="nvidia/nemotron-3.5-lightning-30b-a3b"
+                      value={settings.aiFallbackModel || ''}
+                      onChange={(e) => setSettings({ ...settings, aiFallbackModel: e.target.value })}
                       className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
                     />
                   </div>

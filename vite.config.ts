@@ -22,7 +22,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src')
+      '@': resolve(import.meta.dirname, './src')
     }
   },
   build: {
@@ -30,10 +30,10 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: resolve(__dirname, 'src/popup/index.html'),
-        options: resolve(__dirname, 'src/options/index.html'),
-        review: resolve(__dirname, 'src/review/index.html'),
-        'background/service-worker': resolve(__dirname, 'src/background/service-worker.ts')
+        popup: resolve(import.meta.dirname, 'src/popup/index.html'),
+        options: resolve(import.meta.dirname, 'src/options/index.html'),
+        review: resolve(import.meta.dirname, 'src/review/index.html'),
+        'background/service-worker': resolve(import.meta.dirname, 'src/background/service-worker.ts')
       },
       output: {
         entryFileNames: (chunkInfo) => {

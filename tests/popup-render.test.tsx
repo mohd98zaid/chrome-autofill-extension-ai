@@ -52,7 +52,7 @@ describe('Popup Component Rendering & Resilience', () => {
     expect(container.innerHTML).toContain('AI Job Assistant');
     expect(container.innerHTML).toContain('Active CV / Profile');
     expect(container.innerHTML).toContain('No profile data saved yet');
-    root.unmount();
+    act(() => root.unmount());
   });
 
   it('renders correctly with partial profile and missing optional arrays', async () => {
@@ -84,7 +84,7 @@ describe('Popup Component Rendering & Resilience', () => {
 
     expect(container.innerHTML).toContain('Jane Doe');
     expect(container.innerHTML).toContain('0 verified skills');
-    root.unmount();
+    act(() => root.unmount());
   });
 
   it('renders correctly when multiple CV profiles exist in storage', async () => {
@@ -120,6 +120,6 @@ describe('Popup Component Rendering & Resilience', () => {
 
     expect(container.innerHTML).toContain('Alex Rivera');
     expect(container.innerHTML).toContain('Fullstack Dev');
-    root.unmount();
+    act(() => root.unmount());
   });
 });

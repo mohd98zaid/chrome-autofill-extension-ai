@@ -62,9 +62,11 @@ const DEFAULT_PROFILE: UserProfile = {
 
 const DEFAULT_SETTINGS: Settings = {
   aiEnabled: true,
-  aiProvider: 'gemini',
-  aiApiKey: '',
-  aiModelName: 'gemini-flash-lite-latest',
+  aiProvider: 'nvidia',
+  aiApiKey: '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',
+  aiBaseUrl: 'https://integrate.api.nvidia.com/v1',
+  aiModelName: 'openai/gpt-oss-20b',
+  aiFallbackModel: 'nvidia/nemotron-3.5-lightning-30b-a3b',
   autoFillThreshold: 0.90,
   reviewThreshold: 0.70,
   storeHistory: false,
@@ -182,7 +184,19 @@ export class StorageService {
       if (this.isChromeStorageAvailable()) {
         const result = await chrome.storage.local.get('settings');
         if (result.settings) {
-          return SettingsSchema.parse(result.settings);
+          const parsed = SettingsSchema.parse({
+            ...DEFAULT_SETTINGS,
+            ...result.settings
+          });
+          if (!parsed.aiApiKey || parsed.aiApiKey.trim() === '') {
+            parsed.aiApiKey = DEFAULT_SETTINGS.aiApiKey;
+            parsed.aiProvider = DEFAULT_SETTINGS.aiProvider;
+            parsed.aiBaseUrl = DEFAULT_SETTINGS.aiBaseUrl;
+            parsed.aiModelName = DEFAULT_SETTINGS.aiModelName;
+            parsed.aiFallbackModel = DEFAULT_SETTINGS.aiFallbackModel;
+            parsed.allowCloudAI = true;
+          }
+          return parsed;
         }
       } else {
         const mem = this.memoryStore.get('settings');

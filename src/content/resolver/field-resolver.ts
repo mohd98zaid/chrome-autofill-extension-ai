@@ -105,7 +105,30 @@ export function resolveFieldValue(options: ResolveFieldOptions): ResolveFieldRes
     }
 
     case 'country': {
-      const val = profile.location.country?.trim();
+      let val = profile.location.country?.trim();
+      const prompt = `${field.labelText || ''} ${field.name || ''} ${field.placeholder || ''}`.toLowerCase();
+      if (/\bnationality\b|\bcitizenship\b/.test(prompt)) {
+        if (profile.preferences.workAuthorization && !/citizen/i.test(profile.preferences.workAuthorization)) {
+          val = profile.preferences.workAuthorization;
+        } else if (val) {
+          const natMap: Record<string, string> = {
+            india: 'Indian',
+            'united states': 'American',
+            usa: 'American',
+            'united kingdom': 'British',
+            uk: 'British',
+            canada: 'Canadian',
+            australia: 'Australian',
+            germany: 'German',
+            france: 'French',
+            pakistan: 'Pakistani',
+            bangladesh: 'Bangladeshi',
+            uae: 'Emirati',
+            qatar: 'Qatari'
+          };
+          val = natMap[val.toLowerCase()] || val;
+        }
+      }
       if (val) return { status: 'RESOLVED', value: val, source: 'profile.location', confidence: 1.0 };
       return { status: 'UNKNOWN', reason: 'Country not configured in profile' };
     }

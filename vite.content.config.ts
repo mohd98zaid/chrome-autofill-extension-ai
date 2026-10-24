@@ -4,7 +4,7 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src')
+      '@': resolve(import.meta.dirname, './src')
     }
   },
   build: {
@@ -12,7 +12,7 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     lib: {
-      entry: resolve(__dirname, 'src/content/content-script.ts'),
+      entry: resolve(import.meta.dirname, 'src/content/content-script.ts'),
       name: 'ContentScriptController',
       formats: ['iife'],
       fileName: () => 'content/content-script.js'

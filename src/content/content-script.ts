@@ -633,7 +633,13 @@ class ContentScriptController {
         // Dynamic AI or Predefined Cover Letter Synthesis (grounded in JD & Company)
         if (
           classification.semanticType === 'cover_letter' ||
-          (field.controlType === 'textarea' && /cover\s*letter/i.test(field.labelText || field.placeholder || ''))
+          (field.controlType === 'textarea' &&
+            classification.semanticType !== 'linkedin' &&
+            classification.semanticType !== 'github' &&
+            classification.semanticType !== 'portfolio' &&
+            classification.semanticType !== 'skills' &&
+            classification.semanticType !== 'country' &&
+            /cover\s*letter/i.test(field.labelText || field.placeholder || ''))
         ) {
           let letterContent: string | null = null;
 
